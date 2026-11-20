@@ -186,6 +186,12 @@ begin
   end loop;
 end $$;
 
+-- Quyền cơ bản trên bảng cho người đã đăng nhập (RLS bên dưới quyết định từng dòng).
+-- Dự án Supabase mới không tự cấp quyền này. Khách (anon) không được đọc bảng nào.
+grant usage on schema public to authenticated;
+grant select, insert, update, delete on all tables in schema public to authenticated;
+revoke all on all tables in schema public from anon;
+
 -- xóa chính sách cũ (để chạy lại được)
 do $$
 declare r record;
