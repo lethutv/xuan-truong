@@ -7,7 +7,7 @@
 --  Nguyên tắc:
 --   * Kho đề kiểm tra (pool = 'exam') CHỈ giáo viên/admin đọc được.
 --   * Học sinh, phụ huynh chỉ thấy kho luyện tập, bài tập của lớp mình và điểm của mình/con mình.
---   * KHÔNG có tự đăng ký: chỉ admin tạo tài khoản (tên đăng nhập + mật khẩu), không cần email thật.
+--   * Đăng ký phải được ADMIN DUYỆT mới thành tài khoản (đăng nhập bằng số điện thoại). Admin cũng tạo trực tiếp được.
 --   * Hết khóa (cohorts.end_date) → tài khoản học sinh & phụ huynh tự xóa (pg_cron chạy mỗi đêm).
 -- =====================================================================
 
@@ -388,6 +388,127 @@ end $$;
 revoke execute on function public.create_first_admin(text, text, text) from public, anon, authenticated;
 
 -- ---------------------------------------------------------------------
+-- ĐĂNG KÝ CÓ DUYỆT
+-- Người dùng gửi ĐƠN (chưa phải tài khoản). Admin duyệt → tài khoản được tạo đúng vai trò.
+-- Đăng nhập bằng SỐ ĐIỆN THOẠI + mật khẩu đã chọn khi đăng ký.
+-- ---------------------------------------------------------------------
+alter table public.profiles add column if not exists phone text;
+alter table public.teacher_classes add column if not exists homeroom boolean not null default false;
+
+create table if not exists public.registrations (
+  id uuid primary key default gen_random_uuid(),
+  role text not null check (role in ('teacher', 'student', 'parent')),
+  full_name text not null,
+  phone text not null unique,
+  password_hash text not null,                         -- bcrypt, không lưu mật khẩu gốc
+  subject text,                                        -- GV: môn dạy
+  homeroom text,                                       -- GV: chủ nhiệm lớp (nếu có)
+  child_name text,                                     -- PH: họ tên con
+  class_name text, grade int, cohort text,             -- HS: lớp/khối/khóa của mình; PH: của con
+  status text not null default 'pending' check (status in ('pending', 'rejected')),
+  note text,                                           -- lý do từ chối
+  created_at timestamptz not null default now(),
+  reviewed_at timestamptz
+);
+alter table public.registrations enable row level security;
+grant select, update, delete on public.registrations to authenticated;
+revoke all on public.registrations from anon;
+drop policy if exists registrations_admin on public.registrations;
+create policy registrations_admin on public.registrations for all to authenticated
+  using (public.is_admin()) with check (public.is_admin());
+
+-- Gửi đơn đăng ký (gọi được khi chưa đăng nhập)
+create or replace function public.submit_registration(p jsonb) returns jsonb
+language plpgsql security definer set search_path = public, extensions as $$
+declare r text := p->>'role'; ph text := regexp_replace(coalesce(p->>'phone', ''), '\D', '', 'g');
+        nm text := trim(coalesce(p->>'full_name', '')); pw text := coalesce(p->>'password', '');
+begin
+  if r not in ('teacher', 'student', 'parent') then raise exception 'Hãy chọn vai trò'; end if;
+  if length(nm) < 4 or length(nm) > 80 then raise exception 'Họ và tên không hợp lệ'; end if;
+  if ph !~ '^0\d{9,10}$' then raise exception 'Số điện thoại không hợp lệ (10–11 số, bắt đầu bằng 0)'; end if;
+  if length(pw) < 6 or length(pw) > 72 then raise exception 'Mật khẩu từ 6 đến 72 ký tự'; end if;
+  if exists (select 1 from public.profiles where username = ph or phone = ph) then
+    raise exception 'Số điện thoại này đã có tài khoản. Hãy đăng nhập.';
+  end if;
+  if exists (select 1 from public.registrations where phone = ph and status = 'pending') then
+    raise exception 'Số điện thoại này đã gửi đăng ký và đang chờ duyệt.';
+  end if;
+  if r = 'teacher' and coalesce(trim(p->>'subject'), '') = '' then raise exception 'Hãy nhập môn dạy'; end if;
+  if r = 'parent' and coalesce(trim(p->>'child_name'), '') = '' then raise exception 'Hãy nhập họ tên con'; end if;
+  if r in ('student', 'parent') and (coalesce(trim(p->>'class_name'), '') = '' or coalesce(p->>'grade', '') = '') then
+    raise exception 'Hãy nhập lớp và khối';
+  end if;
+  delete from public.registrations where phone = ph and status = 'rejected';   -- đăng ký lại sau khi bị từ chối
+  insert into public.registrations (role, full_name, phone, password_hash, subject, homeroom, child_name, class_name, grade, cohort)
+  values (r, nm, ph, crypt(pw, gen_salt('bf')),
+          nullif(trim(left(p->>'subject', 60)), ''), nullif(trim(left(p->>'homeroom', 30)), ''),
+          nullif(trim(left(p->>'child_name', 80)), ''), nullif(upper(trim(left(p->>'class_name', 20))), ''),
+          nullif(p->>'grade', '')::int, nullif(trim(left(p->>'cohort', 20)), ''));
+  return jsonb_build_object('ok', true);
+end $$;
+grant execute on function public.submit_registration(jsonb) to anon, authenticated;
+
+-- Khi đăng nhập thất bại: kiểm tra có đơn đang chờ không (phải đúng mật khẩu mới trả lời)
+create or replace function public.registration_status(p_phone text, p_password text) returns jsonb
+language plpgsql stable security definer set search_path = public, extensions as $$
+declare g public.registrations;
+begin
+  select * into g from public.registrations where phone = regexp_replace(coalesce(p_phone, ''), '\D', '', 'g');
+  if not found or g.password_hash <> crypt(coalesce(p_password, ''), g.password_hash) then return null; end if;
+  return jsonb_build_object('status', g.status, 'note', g.note, 'role', g.role);
+end $$;
+grant execute on function public.registration_status(text, text) to anon, authenticated;
+
+-- Admin DUYỆT đơn → tạo tài khoản đúng vai trò, mật khẩu là mật khẩu người dùng đã chọn
+--  p_student: HS – hồ sơ có sẵn để gắn (null = tạo hồ sơ mới trong p_class); PH – học sinh là con
+--  p_class:   HS – lớp để tạo hồ sơ mới; GV – lớp chủ nhiệm (không bắt buộc)
+create or replace function public.admin_approve_registration(p_id uuid, p_student uuid default null, p_class uuid default null, p_subjects text[] default null)
+returns uuid language plpgsql security definer set search_path = public, auth, extensions as $$
+declare g public.registrations; uid uuid; sid uuid; c public.classes;
+begin
+  if not public.is_admin() then raise exception 'Chỉ quản trị viên'; end if;
+  select * into g from public.registrations where id = p_id for update;
+  if not found then raise exception 'Không tìm thấy đơn đăng ký'; end if;
+  if g.role = 'student' then
+    if p_student is not null then
+      if exists (select 1 from public.students where id = p_student and user_id is not null) then raise exception 'Học sinh này đã có tài khoản'; end if;
+      sid := p_student;
+    else
+      select * into c from public.classes where id = p_class;
+      if not found then raise exception 'Hãy chọn lớp cho học sinh'; end if;
+      insert into public.students (full_name, class_id, cohort_id) values (g.full_name, c.id, c.cohort_id) returning id into sid;
+    end if;
+  elsif g.role = 'parent' then
+    if p_student is null then raise exception 'Hãy chọn học sinh là con của phụ huynh'; end if;
+  end if;
+  uid := public._create_account(g.phone, encode(gen_random_bytes(12), 'hex'), g.role, g.full_name,
+           case when g.role = 'teacher' then coalesce(p_subjects, array[coalesce(g.subject, '')]) else '{}' end);
+  update auth.users set encrypted_password = g.password_hash where id = uid;       -- dùng đúng mật khẩu đã đăng ký
+  update public.profiles set phone = g.phone where id = uid;
+  if g.role = 'student' then update public.students set user_id = uid where id = sid;
+  elsif g.role = 'parent' then insert into public.parent_links (parent_id, student_id) values (uid, p_student) on conflict do nothing;
+  elsif g.role = 'teacher' and p_class is not null then
+    insert into public.teacher_classes (teacher_id, class_id, subject, homeroom) values (uid, p_class, 'toan', true) on conflict do nothing;
+  end if;
+  delete from public.registrations where id = g.id;                                -- không giữ mật khẩu băm sau khi duyệt
+  return uid;
+end $$;
+
+create or replace function public.admin_reject_registration(p_id uuid, p_note text default '') returns boolean
+language plpgsql security definer set search_path = public as $$
+begin
+  if not public.is_admin() then raise exception 'Chỉ quản trị viên'; end if;
+  update public.registrations set status = 'rejected', note = nullif(trim(p_note), ''), reviewed_at = now() where id = p_id;
+  return found;
+end $$;
+
+-- Đơn bị từ chối quá 30 ngày thì tự xóa
+create or replace function public.purge_old_registrations() returns void
+language sql security definer set search_path = public as
+$$ delete from public.registrations where status = 'rejected' and reviewed_at < now() - interval '30 days' $$;
+revoke execute on function public.purge_old_registrations() from public, anon, authenticated;
+
+-- ---------------------------------------------------------------------
 -- Nộp bài tập về nhà – chấm trên máy chủ (HS không sửa được điểm)
 -- answers: { "<id câu>": 2 | [true,false,..] | "2,5" | "bài làm tự luận" }
 -- ---------------------------------------------------------------------
@@ -459,6 +580,7 @@ begin
       where l.parent_id = p.id and (c.id is null or c.end_date >= current_date))
   ) delete from auth.users u using lonely l where u.id = l.id;
   get diagnostics m = row_count;
+  perform public.purge_old_registrations();
   return n + m;
 end $$;
 revoke execute on function public.purge_expired_accounts() from public, anon, authenticated;

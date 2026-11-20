@@ -39,26 +39,84 @@
   }
 
   // ======================= ĐĂNG NHẬP =======================
+  const SUBJECTS = ['Toán', 'Ngữ văn', 'Tiếng Anh', 'Vật lí', 'Hóa học', 'Sinh học', 'Lịch sử', 'Địa lí', 'GD Kinh tế & Pháp luật', 'Tin học', 'Công nghệ', 'Giáo dục thể chất', 'GD Quốc phòng & An ninh', 'Âm nhạc', 'Mĩ thuật', 'Khác'];
+  const normLogin = (u) => { u = String(u || '').trim(); const d = u.replace(/[\s.\-]/g, ''); return /^\+?\d{9,12}$/.test(d) ? d.replace(/^\+?84/, '0') : u.toLowerCase(); };
   function loginOverlay() {
     const el = document.createElement('div'); el.id = 'authOverlay';
+    const y = new Date().getFullYear();
     el.innerHTML = `<div class="auth-box">
       <div class="auth-brand">∑ <b>Tạo đề Toán</b><span>${esc(CFG.SCHOOL_NAME || '')}</span></div>
+      <div class="seg auth-tabs"><button class="active" data-t="login" type="button">Đăng nhập</button><button data-t="reg" type="button">Đăng ký</button></div>
       <form id="fLogin" class="auth-form">
-        <label>Tên đăng nhập<input name="u" autocomplete="username" autocapitalize="none" required></label>
+        <label>Số điện thoại hoặc tên đăng nhập<input name="u" autocomplete="username" autocapitalize="none" required></label>
         <label>Mật khẩu<input name="p" type="password" autocomplete="current-password" required></label>
         <button class="btn primary block">Đăng nhập</button>
-        <p class="muted small">Tài khoản do quản trị viên nhà trường cấp. Quên mật khẩu? Liên hệ giáo viên chủ nhiệm hoặc quản trị viên.</p>
+        <p class="muted small">Quên mật khẩu? Liên hệ giáo viên chủ nhiệm hoặc quản trị viên.</p>
+      </form>
+      <form id="fReg" class="auth-form" hidden>
+        <div class="seg reg-roles"><button type="button" class="active" data-r="student">Học sinh</button><button type="button" data-r="teacher">Giáo viên</button><button type="button" data-r="parent">Phụ huynh</button></div>
+        <label>Họ và tên<input name="full_name" required maxlength="80" autocomplete="name"></label>
+        <label>Số điện thoại (dùng để đăng nhập)<input name="phone" required inputmode="tel" pattern="[0-9 .]{10,14}" placeholder="0912 345 678" autocomplete="tel"></label>
+        <div data-for="teacher" hidden>
+          <label>Giáo viên dạy môn<select name="subject">${SUBJECTS.map(s => `<option>${s}</option>`).join('')}</select></label>
+          <label>Chủ nhiệm lớp (nếu có)<input name="homeroom" maxlength="20" placeholder="VD: 10A1 – để trống nếu không chủ nhiệm"></label>
+        </div>
+        <div data-for="parent" hidden><label>Phụ huynh của học sinh (họ tên con)<input name="child_name" maxlength="80"></label></div>
+        <div data-for="student parent">
+          <div class="row">
+            <label><span data-lbl>Lớp</span><input name="class_name" maxlength="20" placeholder="10A1"></label>
+            <label>Khối<select name="grade"><option>10</option><option>11</option><option>12</option></select></label>
+          </div>
+          <label>Khóa<input name="cohort" maxlength="20" placeholder="VD: ${y}-${y + 3}"></label>
+        </div>
+        <label>Mật khẩu mong muốn (tối thiểu 6 ký tự)<input name="password" type="password" minlength="6" maxlength="72" required autocomplete="new-password"></label>
+        <label>Nhập lại mật khẩu<input name="password2" type="password" minlength="6" required autocomplete="new-password"></label>
+        <button class="btn primary block">Gửi đăng ký</button>
+        <p class="muted small">Tài khoản chỉ dùng được sau khi quản trị viên nhà trường kiểm tra thông tin và duyệt.</p>
       </form>
       <div id="authMsg" class="small warn"></div>
     </div>`;
     document.body.appendChild(el);
-    const msg = (m) => { $('#authMsg').textContent = m || ''; };
+    const msg = (m, ok) => { const b = $('#authMsg'); b.innerHTML = m || ''; b.className = 'small ' + (ok ? 'auth-ok' : 'warn'); };
+    $$('.auth-tabs button', el).forEach(b => b.onclick = () => {
+      $$('.auth-tabs button', el).forEach(x => x.classList.toggle('active', x === b));
+      $('#fLogin').hidden = b.dataset.t !== 'login'; $('#fReg').hidden = b.dataset.t !== 'reg'; msg('');
+    });
+    let role = 'student';
+    const setRole = (r) => {
+      role = r; $$('.reg-roles button', el).forEach(x => x.classList.toggle('active', x.dataset.r === r));
+      $$('#fReg [data-for]', el).forEach(d => { d.hidden = !d.dataset.for.split(' ').includes(r); });
+      $('#fReg [data-lbl]').textContent = r === 'parent' ? 'Lớp của con' : 'Lớp';
+      const f = $('#fReg'); f.class_name.required = r !== 'teacher'; f.child_name.required = r === 'parent';
+    };
+    $$('.reg-roles button', el).forEach(b => b.onclick = () => setRole(b.dataset.r));
+    setRole('student');
     $('#fLogin').onsubmit = async (e) => {
       e.preventDefault(); msg('Đang đăng nhập…');
-      const f = e.target; const u = f.u.value.trim();
+      const f = e.target; const u = normLogin(f.u.value);
       const { error } = await sb.auth.signInWithPassword({ email: u.includes('@') ? u : emailOf(u), password: f.p.value });
-      if (error) return msg(/invalid/i.test(error.message) ? 'Sai tên đăng nhập hoặc mật khẩu.' : error.message);
-      msg(''); start();
+      if (!error) { msg(''); return start(); }
+      if (/invalid/i.test(error.message)) {
+        const { data: st } = await sb.rpc('registration_status', { p_phone: u, p_password: f.p.value });
+        if (st && st.status === 'pending') return msg('🔒 <b>Tài khoản chưa được xác thực thông tin.</b><br>Đăng ký của bạn đang chờ quản trị viên duyệt. Bạn sẽ đăng nhập được sau khi được duyệt.');
+        if (st && st.status === 'rejected') return msg('⛔ <b>Đăng ký chưa được chấp nhận.</b>' + (st.note ? '<br>Lý do: ' + esc(st.note) : '') + '<br>Bạn có thể kiểm tra lại thông tin và đăng ký lại.');
+        return msg('Sai số điện thoại/tên đăng nhập hoặc mật khẩu.');
+      }
+      msg(esc(error.message));
+    };
+    $('#fReg').onsubmit = async (e) => {
+      e.preventDefault(); const f = e.target;
+      if (f.password.value !== f.password2.value) return msg('Hai mật khẩu không khớp.');
+      const p = { role, full_name: f.full_name.value.trim(), phone: normLogin(f.phone.value), password: f.password.value };
+      if (role === 'teacher') Object.assign(p, { subject: f.subject.value, homeroom: f.homeroom.value.trim() });
+      if (role === 'parent') p.child_name = f.child_name.value.trim();
+      if (role !== 'teacher') Object.assign(p, { class_name: f.class_name.value.trim(), grade: f.grade.value, cohort: f.cohort.value.trim() });
+      msg('Đang gửi…');
+      const { error } = await sb.rpc('submit_registration', { p });
+      if (error) return msg(esc(error.message));
+      f.reset(); setRole(role);
+      $$('.auth-tabs button', el)[0].click();
+      msg(`✅ Đã gửi đăng ký cho số <b>${esc(p.phone)}</b>.<br>Khi quản trị viên duyệt, bạn đăng nhập bằng số điện thoại này và mật khẩu vừa đặt.`, true);
     };
   }
 
@@ -191,7 +249,8 @@
   const NEW_VIEWS = {
     classes: { label: 'Lớp & học sinh', roles: ['admin', 'teacher'], render: renderClasses },
     homework: { label: 'Bài tập về nhà', roles: ['admin', 'teacher', 'student', 'parent'], render: renderHomework },
-    scores: { label: 'Điểm', roles: ['student', 'parent'], render: renderScores }
+    scores: { label: 'Điểm', roles: ['student', 'parent'], render: renderScores },
+    approve: { label: 'Duyệt tài khoản', roles: ['admin'], render: renderApprove }
   };
   const TAB_ROLES = { create: ['admin', 'teacher'], bank: ['admin', 'teacher'], saved: ['admin', 'teacher'], grade: ['admin', 'teacher'], practice: ['admin', 'teacher', 'student'] };
   function setupUI() {
@@ -226,6 +285,7 @@
     const roster = $('#grRoster'); if (roster) { roster.textContent = '👥 Lớp & học sinh'; roster.onclick = () => openView('classes'); }
     const backup = $('#btnBackup'); if (backup) backup.parentElement.hidden = true;
     G.__app.refresh();
+    if (role === 'admin') loadRegistrations();
     const first = ['create', 'homework', 'scores'].find(allowed) || 'practice';
     openView(first);
   }
@@ -476,6 +536,103 @@
       const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'tai-khoan.xlsx'; a.click();
     };
     return d;
+  }
+
+  // ======================= DUYỆT TÀI KHOẢN (Admin) =======================
+  const simpl = (t) => noAccent(t).replace(/[^a-z0-9 ]/g, '').replace(/\s+/g, ' ').trim();
+  async function loadRegistrations() {
+    const { data, error } = await sb.from('registrations').select('*').order('created_at');
+    if (error) { toast('Lỗi tải đơn đăng ký: ' + error.message, 5000); return; }
+    S.registrations = data; updateApproveBadge();
+  }
+  function updateApproveBadge() {
+    const t = $('.tab[data-view="approve"]'); if (!t) return;
+    const n = (S.registrations || []).filter(r => r.status === 'pending').length;
+    t.innerHTML = 'Duyệt tài khoản' + (n ? ` <span class="badge">${n}</span>` : '');
+  }
+  const classMatch = (name, grade) => {
+    const n = String(name || '').replace(/\s/g, '').toUpperCase(); if (!n) return null;
+    return S.classes.filter(c => c.name.replace(/\s/g, '').toUpperCase() === n && (!grade || +c.grade === +grade))
+      .sort((a, b) => (b.school_year || '').localeCompare(a.school_year || ''))[0] || null;
+  };
+  const studentOptions = (r, onlyFree) => {
+    const target = simpl(r.role === 'parent' ? r.child_name : r.full_name); const cls = classMatch(r.class_name, r.grade);
+    return S.students.filter(s => !onlyFree || !s.user_id).map(s => {
+      const nm = simpl(s.full_name); let sc = 0;
+      if (nm === target) sc += 10; else if (target && (nm.includes(target) || target.includes(nm))) sc += 5;
+      else if (target && nm.split(' ').pop() === target.split(' ').pop()) sc += 2;
+      if (cls && s.class_id === cls.id) sc += 3;
+      return { s, sc };
+    }).sort((a, b) => b.sc - a.sc || a.s.full_name.localeCompare(b.s.full_name, 'vi'));
+  };
+  const ROLE_TAG = { student: 'Học sinh', teacher: 'Giáo viên', parent: 'Phụ huynh' };
+  async function renderApprove(root) {
+    if (!S.registrations) await loadRegistrations();
+    const list = (S.registrations || []).slice().sort((a, b) => (a.status === 'pending' ? 0 : 1) - (b.status === 'pending' ? 0 : 1) || String(a.created_at).localeCompare(String(b.created_at)));
+    const pend = list.filter(r => r.status === 'pending');
+    const classOpts = (sel) => S.classes.slice().sort((a, b) => a.name.localeCompare(b.name, 'vi')).map(c => `<option value="${c.id}" ${sel && sel.id === c.id ? 'selected' : ''}>${esc(c.name)} · khối ${c.grade} · ${esc(c.school_year)}</option>`).join('');
+    root.innerHTML = `<div class="row-actions" style="margin-bottom:8px"><h2 style="margin:0">Đơn đăng ký chờ duyệt (${pend.length})</h2><span class="spacer"></span><button class="btn sm" id="apReload">↻ Tải lại</button></div>
+      <p class="muted small">Kiểm tra thông tin rồi bấm <b>Duyệt</b>. Tài khoản được tạo đúng vai trò đã đăng ký; người dùng đăng nhập bằng số điện thoại và mật khẩu họ đã chọn. Chưa duyệt thì không đăng nhập được.</p>
+      ${list.map(r => {
+        const cls = classMatch(r.class_name, r.grade); const homeCls = classMatch(r.homeroom);
+        let ctl = '';
+        if (r.role === 'student') {
+          const opts = studentOptions(r, true).slice(0, 60);
+          ctl = `<label>Gắn với hồ sơ học sinh<select data-k="student"><option value="">➕ Tạo hồ sơ mới trong lớp bên dưới</option>${opts.map(o => `<option value="${o.s.id}" ${o.sc >= 13 ? 'selected' : ''}>${esc(o.s.full_name)} – ${esc((classOf(o.s.class_id) || {}).name || '?')}${o.s.sbd ? ' · SBD ' + esc(o.s.sbd) : ''}</option>`).join('')}</select></label>
+            <label>Lớp<select data-k="class"><option value="">— chọn lớp —</option>${classOpts(cls)}</select></label>
+            ${!cls && r.class_name ? `<button class="btn sm" data-mkcls="${r.id}">＋ Tạo lớp ${esc(r.class_name)} (khối ${r.grade || '?'})</button>` : ''}`;
+        } else if (r.role === 'parent') {
+          const opts = studentOptions(r, false).slice(0, 60);
+          ctl = `<label>Là phụ huynh của học sinh<select data-k="student"><option value="">— chọn học sinh —</option>${opts.map(o => `<option value="${o.s.id}" ${o.sc >= 10 ? 'selected' : ''}>${esc(o.s.full_name)} – ${esc((classOf(o.s.class_id) || {}).name || '?')}</option>`).join('')}</select></label>
+            ${opts.length && opts[0].sc >= 10 ? '' : '<p class="warn small">Chưa thấy học sinh trùng tên. Hãy nhập học sinh vào lớp (tab Lớp & học sinh) hoặc duyệt tài khoản của con trước.</p>'}`;
+        } else {
+          ctl = `<label>Môn dạy<input data-k="subjects" value="${esc(r.subject || '')}"></label>
+            <label>Lớp chủ nhiệm<select data-k="class"><option value="">— không chủ nhiệm —</option>${classOpts(homeCls)}</select></label>`;
+        }
+        return `<div class="card ap-card ${r.status}" data-id="${r.id}">
+          <div class="card-head"><span class="tag ap-role-${r.role}">${ROLE_TAG[r.role]}</span><b>${esc(r.full_name)}</b><span class="tag">☎ ${esc(r.phone)}</span>
+            <span class="tag muted">gửi ${fmtDate(r.created_at)}</span>${r.status === 'rejected' ? `<span class="tag warn">Đã từ chối${r.note ? ': ' + esc(r.note) : ''}</span>` : ''}</div>
+          <div class="ap-info small">${r.role === 'teacher' ? `Môn: <b>${esc(r.subject || '')}</b> · Chủ nhiệm: <b>${esc(r.homeroom || 'không')}</b>`
+            : r.role === 'parent' ? `Con: <b>${esc(r.child_name || '')}</b> · Lớp <b>${esc(r.class_name || '')}</b> · Khối ${esc(r.grade || '')} · Khóa ${esc(r.cohort || '')}`
+            : `Lớp <b>${esc(r.class_name || '')}</b> · Khối ${esc(r.grade || '')} · Khóa ${esc(r.cohort || '')}`}</div>
+          ${r.status === 'pending' ? `<div class="ap-ctl">${ctl}</div><div class="row-actions"><button class="btn primary sm" data-ok="${r.id}">✔ Duyệt</button><button class="btn sm danger" data-no="${r.id}">✘ Từ chối</button></div>`
+            : `<div class="row-actions"><button class="btn sm danger" data-del="${r.id}">Xóa đơn</button></div>`}
+        </div>`; }).join('') || '<p class="muted">Không có đơn đăng ký nào.</p>'}`;
+    const R = () => renderApprove(root);
+    $('#apReload', root).onclick = async () => { await loadRegistrations(); await reloadPeople(); R(); };
+    const val = (id, k) => { const el = root.querySelector(`.ap-card[data-id="${id}"] [data-k="${k}"]`); return el ? el.value : ''; };
+    $$('[data-ok]', root).forEach(b => b.onclick = async () => {
+      const r = S.registrations.find(x => x.id === b.dataset.ok);
+      const args = { p_id: r.id, p_student: null, p_class: null, p_subjects: null };
+      if (r.role === 'student') { args.p_student = val(r.id, 'student') || null; args.p_class = val(r.id, 'class') || null; if (!args.p_student && !args.p_class) return toast('Hãy chọn hồ sơ học sinh có sẵn hoặc chọn lớp để tạo hồ sơ mới.', 5000); }
+      if (r.role === 'parent') { args.p_student = val(r.id, 'student') || null; if (!args.p_student) return toast('Hãy chọn học sinh là con.', 4000); }
+      if (r.role === 'teacher') { args.p_class = val(r.id, 'class') || null; args.p_subjects = val(r.id, 'subjects').split(/[,;]/).map(s => s.trim()).filter(Boolean); }
+      b.disabled = true;
+      const { error } = await sb.rpc('admin_approve_registration', args);
+      if (error) { b.disabled = false; return toast('Không duyệt được: ' + error.message, 6000); }
+      toast(`Đã duyệt ${ROLE_TAG[r.role].toLowerCase()} ${r.full_name}. Đăng nhập bằng SĐT ${r.phone}.`, 5000);
+      S.registrations = S.registrations.filter(x => x.id !== r.id); updateApproveBadge();
+      await reloadPeople(); S.classes = await fetchAll('classes'); R();
+    });
+    $$('[data-no]', root).forEach(b => b.onclick = () => {
+      const r = S.registrations.find(x => x.id === b.dataset.no);
+      dialog(`<h3>Từ chối đăng ký – ${esc(r.full_name)}</h3><label>Lý do (người đăng ký sẽ thấy khi đăng nhập)<input name="n" placeholder="VD: Thông tin lớp không khớp danh sách"></label>`, 'Từ chối').onok = async (f) => {
+        const { error } = await sb.rpc('admin_reject_registration', { p_id: r.id, p_note: f.n.value });
+        if (error) return toast(error.message, 5000);
+        Object.assign(r, { status: 'rejected', note: f.n.value }); updateApproveBadge(); R();
+      };
+    });
+    $$('[data-del]', root).forEach(b => b.onclick = async () => {
+      await push(sb.from('registrations').delete().eq('id', b.dataset.del), 'đơn'); S.registrations = S.registrations.filter(x => x.id !== b.dataset.del); R();
+    });
+    $$('[data-mkcls]', root).forEach(b => b.onclick = async () => {
+      const r = S.registrations.find(x => x.id === b.dataset.mkcls);
+      let co = S.cohorts.find(c => c.name === r.cohort);
+      if (!co && r.cohort && /^\d{4}-\d{4}$/.test(r.cohort)) co = await push(sb.from('cohorts').insert({ name: r.cohort, end_date: r.cohort.slice(5) + '-06-30' }).select().single(), 'khóa').then(d => (S.cohorts.push(d), d)).catch(() => null);
+      const y = new Date().getMonth() >= 7 ? new Date().getFullYear() : new Date().getFullYear() - 1;
+      const d = await push(sb.from('classes').insert({ name: r.class_name, grade: r.grade || 10, cohort_id: co ? co.id : null, school_year: `${y}-${y + 1}` }).select().single(), 'lớp').catch(() => null);
+      if (d) { S.classes.push(d); toast(`Đã tạo lớp ${d.name}.`); R(); }
+    });
   }
 
   // ======================= BÀI TẬP VỀ NHÀ =======================

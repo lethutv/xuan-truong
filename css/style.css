@@ -246,3 +246,14 @@ code { background: #f0f3f8; padding: 0 5px; border-radius: 4px; }
 .code-sheet { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; font-family: system-ui, sans-serif; }
 .code-card { border: 1px dashed #000; padding: 10px; break-inside: avoid; font-size: 13px; }
 @media (max-width: 900px) { .cl-grid { grid-template-columns: 1fr; } #userBox { width: 100%; justify-content: flex-end; } }
+
+/* Đăng ký & duyệt tài khoản */
+.reg-roles { margin-bottom: 6px; } .reg-roles button { flex: 1; }
+.auth-box { max-height: 94vh; overflow: auto; }
+.auth-ok { color: var(--ok); }
+#authMsg { margin-top: 8px; line-height: 1.5; }
+.ap-card { margin-bottom: 10px; } .ap-card.rejected { opacity: .7; }
+.ap-info { margin: 4px 0 6px; }
+.ap-ctl { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 0 12px; align-items: end; }
+.ap-ctl select, .ap-ctl input { width: 100%; }
+.tag.ap-role-student { background: #e3f4ea; color: #18794e; } .tag.ap-role-teacher { background: #e8f0fc; color: #1f5fbf; } .tag.ap-role-parent { background: #fff4e5; color: #b4461a; }
