@@ -500,7 +500,7 @@
   };
 
   // ---------- Khởi động ----------
-  if (!G.QBANK || !G.QBANK.length) toast('Không tải được ngân hàng câu hỏi mẫu.', 5000);
+  if ((!G.QBANK || !G.QBANK.length) && !(G.APP_CONFIG && G.APP_CONFIG.SUPABASE_URL)) toast('Không tải được ngân hàng câu hỏi mẫu.', 5000);
   renderChapters(); applyPreset(); updateSavedCount();
   G.addEventListener('beforeunload', (e) => { if (state.exam && !state.saved) { e.preventDefault(); e.returnValue = ''; } });
   G.__app = { state, tex, toast, renderBank, renderSaved, refresh: () => { renderChapters(); applyPreset(); updateSavedCount(); if (state.exam) renderExam(); } };
