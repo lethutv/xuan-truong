@@ -138,7 +138,20 @@ Kết quả chấm lưu trong trình duyệt (ảnh phiếu lưu trong IndexedDB
 
 Khi `js/config.js` để trống, app chạy **ngoại tuyến**: một giáo viên dùng, dữ liệu lưu trên trình duyệt, không cần đăng nhập. Khi điền thông tin Supabase, app chạy **trực tuyến** với 4 vai trò.
 
-**Không có nút đăng ký.** Mọi tài khoản do **Admin** tạo (tên đăng nhập + mật khẩu), sau đó in phiếu tài khoản phát cho từng người. Không cần email thật.
+**Đăng ký có duyệt:** Học sinh, giáo viên, phụ huynh bấm **Đăng ký** ở màn hình đăng nhập, rồi điền các thông tin theo vai trò:
+
+| Vai trò | Thông tin cần điền |
+|---|---|
+| Mọi vai trò | Họ và tên, **số điện thoại** (dùng để đăng nhập), **mật khẩu mong muốn** |
+| Giáo viên | Môn dạy, chủ nhiệm lớp nào (nếu có) |
+| Phụ huynh | Họ tên con, lớp, khối, khóa của con |
+| Học sinh | Lớp, khối, khóa |
+
+Đơn đăng ký **chưa phải tài khoản**. Khi đơn chưa được duyệt, người dùng không đăng nhập được: màn hình báo *"Tài khoản chưa được xác thực thông tin"*.
+
+Admin vào tab **Duyệt tài khoản**, kiểm tra và gắn đúng hồ sơ học sinh, lớp hoặc con, rồi bấm **Duyệt** hoặc **Từ chối** (kèm lý do; người đăng ký sẽ thấy lý do khi đăng nhập). Tài khoản được tạo **đúng vai trò đã đăng ký**. Người dùng đăng nhập bằng số điện thoại và mật khẩu họ đã chọn.
+
+Admin vẫn tạo tài khoản trực tiếp được ở tab *Lớp & học sinh* (in phiếu tài khoản). Không cần email thật.
 
 | Vai trò | Làm được gì |
 |---|---|
@@ -155,12 +168,12 @@ Khi `js/config.js` để trống, app chạy **ngoại tuyến**: một giáo vi
 - Học sinh không sửa được điểm.
 - Khi hết khóa, tài khoản học sinh và phụ huynh **tự xóa** lúc 2 giờ sáng mỗi ngày.
 
-`tools/test-schema.mjs` có 52 phép kiểm tra cho các quy tắc trên, chạy trên Postgres giả lập.
+`tools/test-schema.mjs` có 69 phép kiểm tra cho các quy tắc trên, chạy trên Postgres giả lập.
 
 ### Cài đặt (làm một lần)
 
 1. **Tạo dự án Supabase:** vào supabase.com → *New project*, chọn vùng Singapore.
-2. **Tắt tự đăng ký:** *Authentication → Sign In / Providers*, tắt **Allow new users to sign up**. Máy chủ vốn đã chặn, đây là lớp bảo vệ thêm.
+2. **Tắt tự đăng ký của Supabase:** *Authentication → Sign In / Providers*, tắt **Allow new users to sign up**. App dùng đơn đăng ký riêng có duyệt, nên không cần chức năng này.
 3. **Bật lịch tự xóa:** *Database → Extensions*, bật **pg_cron**.
 4. **Tạo cơ sở dữ liệu:** *SQL Editor → New query*, dán toàn bộ `supabase/schema.sql` rồi bấm **Run**.
 5. **Nạp ngân hàng câu hỏi:** tạo query mới, dán `supabase/seed.sql` (534 câu) rồi bấm **Run**.
