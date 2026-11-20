@@ -152,7 +152,7 @@
   }
   function questionHTML(exam, it, no, opt) {
     const q = it.q; const type = q.type;
-    const meta = opt.actions ? `<span class="qmeta no-print"><span class="lv lv-${q.level}">${q.level}</span> ${esc(shortCh(q.chapter))} · ${esc(q.topic || '')}</span>` : '';
+    const meta = opt.actions ? `<span class="qmeta no-print">${esc(shortCh(q.chapter))} · ${esc(q.topic || '')}</span>` : '';
     const acts = opt.actions ? `<span class="qacts no-print">
       <button data-act="swap" data-qid="${esc(it.qid)}" title="Đổi câu khác">⇄ Đổi</button>
       <button data-act="edit" data-qid="${esc(it.qid)}" title="Sửa câu này trong đề">✎ Sửa</button>
