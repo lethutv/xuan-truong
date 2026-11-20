@@ -171,6 +171,16 @@ ok(stRej.status === 'rejected' && /danh sách/.test(stRej.note), 'bị từ ch�
 ok(!(await throws(() => reg({ role: 'student', full_name: 'Người Lạ', phone: '0909090909', password: 'nguoila2', class_name: '12A1', grade: 12 }))), 'đăng ký lại được sau khi bị từ chối');
 ok(await throws(() => reg({ role: 'student', full_name: 'Trùng Tài Khoản', phone: '0912345678', password: 'xxxxxx1', class_name: '10A1', grade: 10 })), 'SĐT đã có tài khoản thì không đăng ký lại');
 
+// liên hệ giáo viên
+await as(admin, () => q(`insert into teacher_classes(teacher_id, class_id, subject, homeroom) values ($1, $2, 'toan', false)`, [teacher, ids.cl]));
+await as(par, async () => {
+  const cs = await q(`select * from my_contacts()`);
+  ok(cs.some(c => c.teacher_name === 'Trần Thị Lan' && c.homeroom) && cs.some(c => c.teacher_name === 'Cô Hoa' && c.subject === 'Toán'), 'PH xem được GVCN và GV bộ môn của lớp con');
+  ok(cs.every(c => c.class_name === '10A1' || c.class_name === '10A2'), 'chỉ thấy lớp của con');
+});
+await as(stu2, async () => ok((await q(`select * from my_contacts()`)).every(c => c.class_name === '10A2'), 'HS chỉ thấy GV lớp mình'));
+ok((await q(`select count(*)::int n from subjects`))[0].n >= 16, 'có đủ danh sách môn học');
+
 // hết khóa
 await q(`update cohorts set end_date = current_date - 1`);
 const n = (await q(`select purge_expired_accounts() n`))[0].n;

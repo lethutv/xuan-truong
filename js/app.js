@@ -111,7 +111,8 @@
       form: $('#cfgForm').value, time: parseInt($('#cfgTime').value, 10) || 45, matrix, points,
       versions: parseInt($('#cfgVersions').value, 10) || 1, startCode: $('#cfgStartCode').value.replace(/\D/g, '') || '0101',
       mixMode: $('input[name=mixMode]:checked').value, avoidUsed: $('#cfgAvoidUsed').checked, shuffleOpts: $('#cfgShuffleOpts').checked,
-      header: { school: $('#cfgSchool').value, title: $('#cfgTitle').value, year: $('#cfgYear').value }
+      header: { school: $('#cfgSchool').value, title: $('#cfgTitle').value, year: $('#cfgYear').value },
+      subject: (G.CLOUD && G.CLOUD.subject) || 'toan', subjectName: (G.CLOUD && G.CLOUD.subjectName) || 'Toán'
     };
   }
 
@@ -131,8 +132,8 @@
     const h = exam.header; const t = DT.totals(exam, v);
     let html = `<article class="paper">
       <table class="paper-head"><tr>
-        <td><b>${esc(h.school)}</b><br><b>TỔ TOÁN</b><div class="code-box">Mã đề: ${esc(v.code)}</div></td>
-        <td><b>${esc(h.title)}</b><br><b>NĂM HỌC ${esc(h.year)}</b><br><b>Môn: TOÁN – Lớp ${esc(exam.config.grade)}</b><br><i>Thời gian làm bài: ${esc(exam.config.time)} phút, không kể thời gian phát đề</i></td>
+        <td><b>${esc(h.school)}</b><br><b>TỔ ${esc(String(exam.config.subjectName || 'Toán').toUpperCase())}</b><div class="code-box">Mã đề: ${esc(v.code)}</div></td>
+        <td><b>${esc(h.title)}</b><br><b>NĂM HỌC ${esc(h.year)}</b><br><b>Môn: ${esc(String(exam.config.subjectName || 'Toán').toUpperCase())} – Lớp ${esc(exam.config.grade)}</b><br><i>Thời gian làm bài: ${esc(exam.config.time)} phút, không kể thời gian phát đề</i></td>
       </tr></table>
       <p class="candidate">Họ và tên thí sinh: ……………………………………………… Số báo danh: ……………………</p>`;
     const roman = ['I', 'II', 'III', 'IV']; let gi = 0;
@@ -218,8 +219,8 @@
     const ex = state.exam; const ch = ex.config.chapters.map(shortCh).join(', ');
     const def = ex.name || `${ex.header.title} – Toán ${ex.config.grade} (${ch})`;
     const dlg = $('#nameModal'); dlg.querySelector('input').value = def; dlg.returnValue = '';
-    dlg.onclose = () => {
-      if (dlg.returnValue !== 'ok') return;
+    dlg.querySelector('form').onsubmit = (e) => {
+      if (!e.submitter || e.submitter.value !== 'ok') return;
       ex.name = dlg.querySelector('input').value.trim() || def;
       if (DT.Exams.save(DT.clone(ex))) { state.saved = true; renderExam(); updateSavedCount(); toast('Đã lưu đề.'); }
       else toast('Không lưu được – bộ nhớ trình duyệt đầy (ảnh tải lên quá lớn?) hoặc bị chặn.', 5000);
@@ -251,7 +252,7 @@
   }
   function keyHTML(ex, detailV) {
     const h = ex.header;
-    let s = `<article class="paper key"><h3 class="center">ĐÁP ÁN VÀ HƯỚNG DẪN CHẤM</h3><p class="center"><b>${esc(h.title)} – MÔN TOÁN LỚP ${esc(ex.config.grade)} – NĂM HỌC ${esc(h.year)}</b></p>`;
+    let s = `<article class="paper key"><h3 class="center">ĐÁP ÁN VÀ HƯỚNG DẪN CHẤM</h3><p class="center"><b>${esc(h.title)} – MÔN ${esc(String(ex.config.subjectName || 'Toán').toUpperCase())} LỚP ${esc(ex.config.grade)} – NĂM HỌC ${esc(h.year)}</b></p>`;
     for (const v of ex.versions) {
       const k = DT.answerKey(v);
       s += `<h4>Mã đề ${esc(v.code)}</h4>`;
@@ -279,14 +280,31 @@
 
   // ================= TRÌNH SỬA CÂU HỎI =================
   let editorCb = null;
+  // Môn khác Toán (chế độ trực tuyến): chương/bài do giáo viên tự đặt tên, chọn được "＋ mới…"
+  const customSubject = () => !!(G.CLOUD && G.CLOUD.subject && G.CLOUD.subject !== 'toan');
   function fillChapterSelect(sel, grade, value) {
     const chs = DT.chaptersOf(grade, 'all');
-    sel.innerHTML = chs.map(c => `<option value="${c.id}" ${c.id === value ? 'selected' : ''}>${esc(c.name)}</option>`).join('');
+    let h = chs.map(c => `<option value="${esc(c.id)}" ${c.id === value ? 'selected' : ''}>${esc(c.name)}</option>`).join('');
+    if (customSubject()) {
+      if (value && !chs.some(c => c.id === value)) h += `<option value="${esc(value)}" selected>${esc(value)}</option>`;
+      h += '<option value="__new">＋ Chương mới…</option>';
+    }
+    sel.innerHTML = h;
+    if (customSubject() && !chs.length && !value) sel.value = '__new';
+    toggleNew(sel.form);
   }
   function fillTopicSelect(sel, chapterId, value) {
     const c = DT.chapterById(chapterId); const tps = c ? c.topics.slice() : [];
     if (value && !tps.includes(value)) tps.push(value);
-    sel.innerHTML = tps.map(t => `<option ${t === value ? 'selected' : ''}>${esc(t)}</option>`).join('');
+    let h = tps.map(t => `<option ${t === value ? 'selected' : ''}>${esc(t)}</option>`).join('');
+    if (customSubject()) h += '<option value="__new">＋ Bài/chủ đề mới…</option>';
+    sel.innerHTML = h;
+    if (customSubject() && !tps.length) sel.value = '__new';
+    toggleNew(sel.form);
+  }
+  function toggleNew(f) {
+    if (!f || !f.chapterNew) return;
+    f.chapterNew.hidden = f.chapter.value !== '__new'; f.topicNew.hidden = f.topic.value !== '__new';
   }
   function typeFields(type, q) {
     if (type === 'mcq') return '<div class="tf-grid">' + [0, 1, 2, 3].map(i => `<label class="opt-edit"><input type="radio" name="correct" value="${i}" ${q.answer === i ? 'checked' : ''} title="Đáp án đúng"> ${DT.LETTERS[i]}. <input name="opt${i}" value="${esc((q.options || [])[i] || '')}" required></label>`).join('') + '<small class="muted">Chọn nút tròn ở phương án đúng.</small></div>';
@@ -362,7 +380,8 @@
   }
   function readEditor() {
     const f = $('#qForm'); const type = f.type.value;
-    const q = { id: f.dataset.id || undefined, grade: +f.grade.value, chapter: f.chapter.value, topic: f.topic.value, type, level: f.level.value,
+    const chap = f.chapter.value === '__new' ? f.chapterNew.value.trim() : f.chapter.value, top = f.topic.value === '__new' ? f.topicNew.value.trim() : f.topic.value;
+    const q = { id: f.dataset.id || undefined, grade: +f.grade.value, chapter: chap, topic: top, type, level: f.level.value,
       difficulty: +f.difficulty.value || 1, source: f.source.value, content: f.content.value, explanation: f.explanation.value, pool: f.pool.value };
     const fig = readEditorFigure(); if (fig) q.figure = fig;
     if (type === 'mcq') { q.options = [0, 1, 2, 3].map(i => f['opt' + i].value); const c = f.querySelector('input[name=correct]:checked'); q.answer = c ? +c.value : 0; }
@@ -383,12 +402,14 @@
   $('#qForm').addEventListener('input', live);
   $('#qForm').grade.onchange = (e) => { fillChapterSelect(e.target.form.chapter, e.target.value); fillTopicSelect(e.target.form.topic, e.target.form.chapter.value); };
   $('#qForm').chapter.onchange = (e) => fillTopicSelect(e.target.form.topic, e.target.value);
+  $('#qForm').topic.onchange = (e) => toggleNew(e.target.form);
   $('#qForm').type.onchange = (e) => { $('#qTypeFields').innerHTML = typeFields(e.target.value, {}); live(); };
-  $('#qModal').addEventListener('close', () => {
-    if ($('#qModal').returnValue !== 'ok' || !editorCb) return;
+  // Lưu ngay khi bấm nút "Lưu" (không phụ thuộc sự kiện đóng hộp thoại); lỗi thì giữ hộp thoại mở để sửa
+  $('#qForm').addEventListener('submit', (e) => {
+    if (!e.submitter || e.submitter.value !== 'ok' || !editorCb) return;
     const q = readEditor(); const err = figError ? 'hình vẽ: ' + figError : DT.validateQuestion(q);
-    if (err) { toast('Chưa lưu: ' + err, 4000); return; }
-    try { editorCb(q); editorCb = null; } catch (e) { toast('Không lưu được: ' + e.message, 5000); }
+    if (err) { e.preventDefault(); toast('Chưa lưu: ' + err, 4000); return; }
+    try { editorCb(q); editorCb = null; } catch (er) { e.preventDefault(); toast('Không lưu được: ' + er.message, 5000); }
   });
 
   // ================= NGÂN HÀNG =================
@@ -450,7 +471,7 @@
   }
 
   // ================= ĐỀ ĐÃ LƯU =================
-  function updateSavedCount() { $('#savedCount').textContent = DT.Exams.all().length; }
+  function updateSavedCount() { const el = $('#savedCount'); if (el) el.textContent = DT.Exams.all().length; if (G.CLOUD && G.CLOUD.updateBadges) G.CLOUD.updateBadges(); }
   function renderSaved() {
     const list = DT.Exams.all();
     $('#savedList').innerHTML = list.length ? list.map(e => {

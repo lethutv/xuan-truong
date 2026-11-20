@@ -138,6 +138,24 @@ Kết quả chấm lưu trong trình duyệt (ảnh phiếu lưu trong IndexedDB
 
 Khi `js/config.js` để trống, app chạy **ngoại tuyến**: một giáo viên dùng, dữ liệu lưu trên trình duyệt, không cần đăng nhập. Khi điền thông tin Supabase, app chạy **trực tuyến** với 4 vai trò.
 
+**Giao diện cổng quản lý:** menu bên trái chia theo nhóm, trên điện thoại thu vào nút ☰. Góc trên có ô chọn **Môn** đang làm việc và menu tài khoản (đổi mật khẩu, đăng xuất).
+
+| Vai trò | Menu |
+|---|---|
+| **Admin** | Tổng quan · *Người dùng*: Duyệt đăng ký, Tài khoản · *Tổ chức*: Khóa, lớp & học sinh, Phân công giảng dạy · *Đề kiểm tra*: Tạo đề, Đề đã lưu, Ngân hàng câu hỏi · *Chấm & điểm*: Chấm phiếu, Bảng điểm · *Học tập*: Bài tập về nhà, Luyện tập · *Lớp chủ nhiệm*: Xem theo lớp |
+| **Giáo viên bộ môn** | Tổng quan · Lớp & học sinh · Đề kiểm tra (theo môn của mình) · Chấm & điểm · Bài tập về nhà |
+| **GV chủ nhiệm** | Thêm nhóm **Lớp chủ nhiệm**: danh sách học sinh kèm tài khoản và SĐT phụ huynh, điểm tổng hợp mọi môn, tình hình nộp bài tập (ai chưa nộp) |
+| **Học sinh** | Tổng quan (điểm TB, bài tập cần làm) · Bài tập về nhà · Luyện tập · Điểm của tôi · Giáo viên của lớp |
+| **Phụ huynh** | Chọn con (nếu nhiều con) · Tổng quan · Điểm kiểm tra · Bài tập về nhà · Liên hệ giáo viên chủ nhiệm và giáo viên bộ môn |
+
+**Nhiều môn học:**
+- Đề kiểm tra, ngân hàng câu hỏi và bài tập đều tách riêng theo môn đang chọn.
+- Môn Toán có sẵn chương trình KNTT và 534 câu.
+- Các môn khác: giáo viên tự đặt tên **chương / bài** khi soạn câu (chọn *＋ Chương mới…*). Trang Tạo đề tự lấy danh sách chương từ ngân hàng của môn đó.
+- Tiêu đề đề và file Word ghi đúng tên môn.
+
+**Phân công:** Admin vào *Phân công giảng dạy* để giao cho mỗi giáo viên: dạy môn nào ở lớp nào, hoặc **chủ nhiệm** lớp nào. Giáo viên được phân công chủ nhiệm sẽ thấy nhóm menu *Lớp chủ nhiệm*. Học sinh và phụ huynh thấy tên cùng SĐT giáo viên của lớp.
+
 **Đăng ký có duyệt:** Học sinh, giáo viên, phụ huynh bấm **Đăng ký** ở màn hình đăng nhập, rồi điền các thông tin theo vai trò:
 
 | Vai trò | Thông tin cần điền |
@@ -168,7 +186,7 @@ Admin vẫn tạo tài khoản trực tiếp được ở tab *Lớp & học sin
 - Học sinh không sửa được điểm.
 - Khi hết khóa, tài khoản học sinh và phụ huynh **tự xóa** lúc 2 giờ sáng mỗi ngày.
 
-`tools/test-schema.mjs` có 69 phép kiểm tra cho các quy tắc trên, chạy trên Postgres giả lập.
+`tools/test-schema.mjs` có 73 phép kiểm tra cho các quy tắc trên, chạy trên Postgres giả lập.
 
 ### Cài đặt (làm một lần)
 
@@ -254,7 +272,9 @@ js/omr.js           Đọc phiếu: tìm ô vuông góc, nắn ảnh, đo độ 
 js/grading.js       Danh sách học sinh, chấm điểm, tô màu, xuất Excel/ZIP
 js/practice.js      Luyện tập cho học sinh (chỉ kho luyện tập) và xuất trang riêng
 js/config.js        Cấu hình Supabase (để trống = ngoại tuyến)
-js/cloud.js         Chế độ trực tuyến: đăng nhập, đồng bộ, lớp & học sinh, bài tập về nhà, xem điểm
+js/cloud.js         Chế độ trực tuyến: đăng nhập/đăng ký, đồng bộ, menu theo vai trò, môn học, lớp & học sinh, duyệt tài khoản, bài tập, xem điểm
+js/portal.js        Các trang cổng: Tổng quan, Tài khoản, Phân công, Lớp chủ nhiệm, Bảng điểm, Liên hệ giáo viên
+tools/portal-test.html  Xem thử giao diện từng vai trò bằng dữ liệu giả (?role=admin|teacher|homeroom|student|parent)
 supabase/schema.sql Cơ sở dữ liệu, phân quyền (RLS), admin tạo tài khoản, tự xóa tài khoản hết khóa
 supabase/seed.sql   Ngân hàng câu hỏi mẫu (534 câu) để nạp lên Supabase
 tools/build-online.js  Đóng gói bản web trực tuyến (không kèm ngân hàng câu hỏi)

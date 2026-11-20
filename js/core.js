@@ -111,7 +111,7 @@
     if (!TYPES[q.type]) return 'dạng câu không hợp lệ';
     if (!LEVELS[q.level]) return 'mức độ không hợp lệ';
     if (!q.content) return 'thiếu nội dung';
-    if (!chapterById(q.chapter)) return 'mã chương không tồn tại: ' + q.chapter;
+    if (!G.DT.chapterById(q.chapter)) return 'chương không hợp lệ: ' + q.chapter;
     if (q.type === 'mcq' && (!Array.isArray(q.options) || q.options.length !== 4 || !(q.answer >= 0 && q.answer <= 3))) return 'câu trắc nghiệm cần 4 phương án và answer 0–3';
     if (q.type === 'tf' && (!Array.isArray(q.statements) || q.statements.length !== 4 || !Array.isArray(q.answer) || q.answer.length !== 4)) return 'câu đúng/sai cần 4 mệnh đề và 4 đáp án';
     if (q.figure) { try { G.Figures.render(q.figure); } catch (e) { return 'hình vẽ: ' + e.message; } }

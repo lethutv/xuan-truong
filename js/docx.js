@@ -108,11 +108,11 @@
   function headerBlock(exam, code) {
     const h = exam.header;
     const left = para(run(h.school || '', { bold: true }), { align: 'center', after: 0 }) +
-      para(run('TỔ TOÁN', { bold: true }), { align: 'center', after: 0 }) +
+      para(run('TỔ ' + String(exam.config.subjectName || 'Toán').toUpperCase(), { bold: true }), { align: 'center', after: 0 }) +
       (code ? para(run('Mã đề: ' + code, { bold: true }), { align: 'center', after: 0 }) : '');
     const right = para(run(h.title || '', { bold: true }), { align: 'center', after: 0 }) +
       para(run('NĂM HỌC ' + (h.year || ''), { bold: true }), { align: 'center', after: 0 }) +
-      para(run('Môn: TOÁN – Lớp ' + exam.config.grade, { bold: true }), { align: 'center', after: 0 }) +
+      para(run('Môn: ' + String(exam.config.subjectName || 'Toán').toUpperCase() + ' – Lớp ' + exam.config.grade, { bold: true }), { align: 'center', after: 0 }) +
       para(run('Thời gian làm bài: ' + exam.config.time + ' phút, không kể thời gian phát đề', { italic: true }), { align: 'center', after: 0 });
     let s = table([[left, right]], { noBorder: true, widths: [3900, 5900] });
     s += para(run('Họ và tên thí sinh: ……………………………………………  Số báo danh: ……………………'), {});
@@ -160,7 +160,7 @@
   function keyBody(exam, detailVersion) {
     const h = exam.header;
     let s = para(run('ĐÁP ÁN VÀ HƯỚNG DẪN CHẤM', { bold: true, size: 14 }), { align: 'center', after: 0 }) +
-      para(run((h.title || '') + ' – MÔN TOÁN LỚP ' + exam.config.grade + ' – NĂM HỌC ' + (h.year || ''), { bold: true }), { align: 'center' });
+      para(run((h.title || '') + ' – MÔN ' + String(exam.config.subjectName || 'Toán').toUpperCase() + ' LỚP ' + exam.config.grade + ' – NĂM HỌC ' + (h.year || ''), { bold: true }), { align: 'center' });
     for (const v of exam.versions) {
       const k = DT.answerKey(v);
       s += para(run('Mã đề ' + v.code, { bold: true, underline: true }), { before: 160, keepNext: true });

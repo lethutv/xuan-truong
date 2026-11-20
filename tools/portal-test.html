@@ -1,0 +1,275 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Thử giao diện cổng</title>
+<link rel="stylesheet" href="../vendor/katex/katex.min.css">
+<link rel="stylesheet" href="../css/style.css?v=24">
+</head>
+<body>
+<header class="topbar no-print">
+  <div class="brand">∑ <b>Tạo đề Toán</b> <span class="muted">Lớp 10 · 11 · 12 — Kết nối tri thức</span></div>
+  <nav class="tabs" role="tablist">
+    <button class="tab active" data-view="create">Tạo đề</button>
+    <button class="tab" data-view="bank">Ngân hàng câu hỏi</button>
+    <button class="tab" data-view="saved">Đề đã lưu <span id="savedCount" class="badge">0</span></button>
+    <button class="tab" data-view="grade">Chấm bài</button>
+    <button class="tab" data-view="practice">Luyện tập (HS)</button>
+  </nav>
+</header>
+
+<main>
+<!-- ============ TẠO ĐỀ ============ -->
+<section id="view-create" class="view active">
+  <aside class="panel config no-print">
+    <h2>1. Phạm vi kiến thức</h2>
+    <div class="row">
+      <label>Lớp
+        <select id="cfgGrade"><option value="10">Lớp 10</option><option value="11">Lớp 11</option><option value="12">Lớp 12</option></select>
+      </label>
+      <label>Học kỳ
+        <select id="cfgSemester"><option value="1">Học kỳ I</option><option value="2">Học kỳ II</option><option value="all">Cả năm</option></select>
+      </label>
+    </div>
+    <div id="chapterList" class="chapters"></div>
+
+    <h2>2. Hình thức kiểm tra</h2>
+    <div class="row">
+      <label>Loại đề
+        <select id="cfgForm">
+          <option value="15p">Kiểm tra 15 phút</option>
+          <option value="gk" selected>Giữa kỳ</option>
+          <option value="ck">Cuối kỳ (cấu trúc 2025)</option>
+          <option value="custom">Tùy chỉnh</option>
+        </select>
+      </label>
+      <label>Thời gian (phút)<input id="cfgTime" type="number" min="5" max="180" value="90"></label>
+    </div>
+
+    <h2>3. Ma trận đề <small class="muted">(số câu theo mức độ)</small></h2>
+    <div class="table-wrap">
+    <table class="matrix">
+      <thead><tr><th>Dạng câu</th><th title="Nhận biết">NB</th><th title="Thông hiểu">TH</th><th title="Vận dụng">VD</th><th>Điểm/câu</th><th>Tổng</th></tr></thead>
+      <tbody id="matrixBody"></tbody>
+      <tfoot><tr><td>Tổng</td><td id="sumNB"></td><td id="sumTH"></td><td id="sumVD"></td><td></td><td id="sumPts"></td></tr></tfoot>
+    </table>
+    </div>
+    <p id="matrixHint" class="hint"></p>
+
+    <h2>4. Mã đề & trộn</h2>
+    <div class="row">
+      <label>Số mã đề<input id="cfgVersions" type="number" min="1" max="24" value="2"></label>
+      <label>Mã đề bắt đầu (4 số)<input id="cfgStartCode" inputmode="numeric" maxlength="4" pattern="\d{1,4}" value="0101"></label>
+    </div>
+    <label class="check"><input type="radio" name="mixMode" value="same" checked> Cùng bộ câu, đảo thứ tự câu & phương án</label>
+    <label class="check"><input type="radio" name="mixMode" value="diff"> Mỗi mã đề chọn câu khác nhau (nếu đủ câu)</label>
+    <label class="check"><input id="cfgAvoidUsed" type="checkbox" checked> Ưu tiên câu chưa dùng trong các đề đã lưu</label>
+    <label class="check"><input id="cfgShuffleOpts" type="checkbox" checked> Đảo phương án A–D</label>
+
+    <h2>5. Thông tin tiêu đề</h2>
+    <label>Đơn vị / Trường<input id="cfgSchool" value="TRƯỜNG THPT ..........."></label>
+    <label>Tên bài kiểm tra<input id="cfgTitle" value="ĐỀ KIỂM TRA GIỮA KỲ"></label>
+    <label>Năm học<input id="cfgYear" value="2026 – 2027"></label>
+
+    <button id="btnGenerate" class="btn primary block">⚙ Sinh đề</button>
+  </aside>
+
+  <div class="panel preview-panel">
+    <div class="toolbar no-print">
+      <div class="seg" id="versionTabs"></div>
+      <div class="toolbar-actions">
+        <label class="check inline"><input id="showAnswers" type="checkbox"> Hiện đáp án</label>
+        <button class="btn" id="btnSave" disabled>💾 Lưu đề</button>
+        <div class="dropdown">
+          <button class="btn" id="btnExport" disabled>⬇ Xuất file ▾</button>
+          <div class="menu" id="exportMenu">
+            <button data-exp="pdf-exam">PDF – Đề (mã đang xem)</button>
+            <button data-exp="pdf-all">PDF – Tất cả mã đề</button>
+            <button data-exp="pdf-key">PDF – Đáp án & lời giải</button>
+            <hr>
+            <button data-exp="docx-exam">Word – Đề (mã đang xem)</button>
+            <button data-exp="docx-all">Word – Tất cả mã đề</button>
+            <button data-exp="docx-key">Word – Đáp án & lời giải</button>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div id="warnings" class="warnings no-print"></div>
+    <div id="preview" class="paper-wrap">
+      <div class="empty">
+        <p>Chọn lớp, chương và ma trận đề ở bên trái, sau đó bấm <b>Sinh đề</b>.</p>
+        <p class="muted">Đề được sinh ngẫu nhiên từ ngân hàng câu hỏi, có thể đổi câu, sửa nội dung, lưu và xuất PDF/Word.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ NGÂN HÀNG ============ -->
+<section id="view-bank" class="view">
+  <div class="panel">
+    <div class="bank-filters">
+      <select id="fPool"><option value="">Cả hai kho</option><option value="exam">Kho đề kiểm tra</option><option value="practice">Kho luyện tập</option></select>
+      <select id="fGrade"><option value="">Mọi lớp</option><option>10</option><option>11</option><option>12</option></select>
+      <select id="fChapter"><option value="">Mọi chương</option></select>
+      <select id="fType"><option value="">Mọi dạng</option></select>
+      <select id="fLevel"><option value="">Mọi mức độ</option><option value="NB">Nhận biết</option><option value="TH">Thông hiểu</option><option value="VD">Vận dụng</option></select>
+      <input id="fSearch" placeholder="Tìm nội dung…">
+      <span class="spacer"></span>
+      <button class="btn primary" id="btnAddQ">＋ Thêm câu hỏi</button>
+      <button class="btn" id="btnExportBank">Xuất JSON</button>
+      <label class="btn">Nhập JSON<input type="file" id="importBank" accept=".json" hidden></label>
+    </div>
+    <div id="bankStats" class="stats"></div>
+    <div id="bankList" class="bank-list"></div>
+  </div>
+</section>
+
+<!-- ============ ĐỀ ĐÃ LƯU ============ -->
+<section id="view-saved" class="view">
+  <div class="panel">
+    <h2>Đề đã lưu trên trình duyệt này</h2>
+    <p class="muted">Dữ liệu lưu trong bộ nhớ trình duyệt (localStorage). Dùng “Sao lưu” để giữ lâu dài hoặc chuyển sang máy khác.</p>
+    <div class="row-actions">
+      <button class="btn" id="btnBackup">Sao lưu tất cả (JSON)</button>
+      <label class="btn">Khôi phục<input type="file" id="restoreFile" accept=".json" hidden></label>
+    </div>
+    <div id="savedList"></div>
+  </div>
+</section>
+<!-- ============ CHẤM BÀI ============ -->
+<section id="view-grade" class="view">
+  <div class="panel gr-top">
+    <div class="gr-top-row">
+      <label class="grow">Đề cần chấm<select id="grExam"></select></label>
+      <button class="btn" id="grRoster">👥 Danh sách học sinh</button>
+      <label class="btn primary">📄 Tải ảnh / PDF phiếu<input type="file" id="grFiles" accept="image/*,application/pdf" multiple hidden></label>
+      <label class="btn">📷 Chụp phiếu<input type="file" id="grCamera" accept="image/*" capture="environment" hidden></label>
+    </div>
+    <div id="grExamInfo" class="small"></div>
+    <div id="grProgress" class="small muted"></div><div id="grFails"></div>
+  </div>
+  <div class="gr-grid">
+    <div class="panel">
+      <div class="gr-top-row"><select id="grClassFilter"></select><span id="grSummary" class="muted small grow"></span>
+        <button class="btn sm" id="grXlsx">⬇ Xuất Excel</button><button class="btn sm" id="grZip">⬇ Ảnh đã chấm (ZIP)</button></div>
+      <div class="table-wrap"><table id="grTable" class="gr-table"></table></div>
+    </div>
+    <div class="panel" id="grDetail"></div>
+  </div>
+</section>
+
+<!-- ============ LUYỆN TẬP ============ -->
+<section id="view-practice" class="view">
+  <div class="panel">
+    <div class="gr-top-row"><div class="grow"><b>Luyện tập online</b> <span class="muted small">– chỉ dùng <b>kho luyện tập</b>; câu trong kho đề kiểm tra không bao giờ xuất hiện ở đây.</span></div>
+      <button class="btn" id="btnExportPractice" title="Tạo trang web riêng chỉ chứa kho luyện tập để gửi/đăng cho học sinh">⬇ Xuất trang luyện tập cho học sinh</button></div>
+    <div id="practiceRoot"></div>
+  </div>
+</section>
+</main>
+
+<!-- Danh sách học sinh -->
+<dialog id="rosterModal">
+  <div class="swap-wrap">
+    <h3>Danh sách học sinh</h3>
+    <p class="muted small">Dán từ Excel (mỗi dòng một học sinh, các cột theo thứ tự): <b>Họ và tên · SBD · Lớp · Khối · Khóa</b>. Ví dụ: <code>Lưu Khánh Linh	10012345	10A1	10	2025-2028</code>. SBD phải trùng số học sinh tô trên phiếu.</p>
+    <textarea id="rosterText" rows="6" style="width:100%" placeholder="Họ và tên	SBD	Lớp	Khối	Khóa"></textarea>
+    <div class="row-actions" style="margin:6px 0"><button class="btn primary" id="rosterAdd">Thêm / cập nhật</button><label class="btn">Mở tệp CSV/TXT<input type="file" id="rosterFile" accept=".csv,.txt,.tsv" hidden></label>
+      <span class="spacer"></span><input id="rosterKhoa" placeholder="Khóa (vd 2023-2026)" style="width:170px"><button class="btn danger" id="rosterClear">Xóa học sinh hết khóa</button></div>
+    <div id="rosterErr"></div>
+    <div id="rosterInfo" class="small muted"></div>
+    <div class="table-wrap" style="max-height:45vh;overflow:auto"><table id="rosterTable" class="gr-table"></table></div>
+    <div class="modal-actions"><button class="btn" id="rosterClose">Đóng</button></div>
+  </div>
+</dialog>
+
+
+<!-- Modal sửa câu hỏi -->
+<dialog id="qModal">
+  <form method="dialog" id="qForm">
+    <h3 id="qModalTitle">Sửa câu hỏi</h3>
+    <div class="row">
+      <label>Lớp<select name="grade"><option>10</option><option>11</option><option>12</option></select></label>
+      <label>Chương<select name="chapter"></select><input name="chapterNew" placeholder="Tên chương mới" maxlength="120" hidden></label>
+    </div>
+    <div class="row">
+      <label>Chủ đề / bài<select name="topic"></select><input name="topicNew" placeholder="Tên bài / chủ đề mới" maxlength="120" hidden></label>
+      <label>Dạng<select name="type"></select></label>
+    </div>
+    <div class="row">
+      <label>Kho<select name="pool"><option value="exam">Kho đề kiểm tra</option><option value="practice">Kho luyện tập</option></select></label>
+      <label>Mức độ<select name="level"><option value="NB">Nhận biết</option><option value="TH">Thông hiểu</option><option value="VD">Vận dụng</option></select></label>
+      <label>Độ khó (1–3)<input name="difficulty" type="number" min="1" max="3" value="1"></label>
+      <label>Nguồn<input name="source" value="Tự biên soạn"></label>
+    </div>
+    <label>Nội dung (công thức trong $...$)<textarea name="content" rows="3" required></textarea></label>
+    <div id="qTypeFields"></div>
+    <div class="fig-edit">
+      <div class="fig-edit-head"><b>Hình vẽ</b> <span class="muted">(không bắt buộc)</span>
+        <label class="btn sm">🖼 Tải ảnh lên<input type="file" id="figUpload" accept="image/*" hidden></label>
+        <select id="figSample" class="sm"><option value="">＋ Chèn mẫu hình…</option><option value="graph">Đồ thị hàm số</option><option value="bbt">Bảng biến thiên</option><option value="geo">Hình học (hình chóp)</option></select>
+        <button type="button" class="btn sm" id="figClear">Xóa hình</button>
+      </div>
+      <textarea name="figure" rows="3" placeholder='Mô tả hình dạng JSON, ví dụ {"type":"graph","fn":"x^2-2*x","x":[-2,4],"y":[-2,5]} – hoặc bấm “Tải ảnh lên”.'></textarea>
+    </div>
+    <label>Giải thích / lời giải<textarea name="explanation" rows="3"></textarea></label>
+    <div class="live-label">Xem trước:</div>
+    <div id="qLive" class="live"></div>
+    <div class="modal-actions">
+      <span id="qScopeNote" class="muted"></span>
+      <button value="cancel" class="btn" formnovalidate>Hủy</button>
+      <button value="ok" class="btn primary">Lưu</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- Modal đặt tên đề -->
+<dialog id="nameModal">
+  <form method="dialog">
+    <h3>Lưu đề</h3>
+    <label>Tên đề<input name="name" required></label>
+    <div class="modal-actions"><button value="cancel" class="btn" formnovalidate>Hủy</button><button value="ok" class="btn primary">Lưu</button></div>
+  </form>
+</dialog>
+
+<!-- Modal đổi câu -->
+<dialog id="swapModal">
+  <div class="swap-wrap">
+    <h3>Chọn câu thay thế</h3>
+    <p class="muted" id="swapInfo"></p>
+    <div id="swapList" class="bank-list"></div>
+    <div class="modal-actions"><button class="btn" id="swapClose">Đóng</button></div>
+  </div>
+</dialog>
+
+<div id="printArea"></div>
+<div id="toast"></div>
+
+<script src="../vendor/katex/katex.min.js"></script>
+<script src="../vendor/jszip.min.js"></script>
+<script src="../vendor/mathml2omml.min.js"></script>
+<script src="../js/curriculum.js?v=24"></script>
+<script src="../js/bank-10.js?v=24"></script>
+<script src="../js/bank-11.js?v=24"></script>
+<script src="../js/bank-12.js?v=24"></script>
+<script src="../js/bank-10b.js?v=24"></script>
+<script src="../js/bank-10c.js?v=24"></script>
+<script src="../js/bank-11b.js?v=24"></script>
+<script src="../js/bank-11c.js?v=24"></script>
+<script src="../js/bank-12b.js?v=24"></script>
+<script src="../js/bank-12c.js?v=24"></script>
+<script src="../js/figures.js?v=24"></script>
+<script src="../js/core.js?v=24"></script>
+<script src="../js/docx.js?v=24"></script>
+<script src="../js/omr-layout.js?v=24"></script>
+<script src="../js/omr.js?v=24"></script>
+<script src="../js/grading.js?v=24"></script>
+<script src="../js/practice.js?v=24"></script>
+<script src="../js/app.js?v=24"></script>
+<script src="portal-mock.js"></script>
+<script>window.APP_CONFIG={SUPABASE_URL:"https://mock.local",SUPABASE_ANON_KEY:"mock",LOGIN_DOMAIN:"taikhoan.detoan.app",SCHOOL_NAME:"THPT Xuân Trường (thử nghiệm)"};</script>
+<script src="../js/cloud.js?v=24"></script>
+<script src="../js/portal.js?v=24"></script>
+</body>
+</html>

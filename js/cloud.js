@@ -135,19 +135,19 @@
   }
 
   // ======================= TẢI DỮ LIỆU =======================
-  const qFromRow = (r) => Object.assign({}, r.data, { id: r.id, pool: r.pool, grade: r.grade, chapter: r.chapter, topic: r.topic, type: r.type, level: r.level });
+  const qFromRow = (r) => Object.assign({}, r.data, { id: r.id, pool: r.pool, grade: r.grade, chapter: r.chapter, topic: r.topic, type: r.type, level: r.level, subject: r.subject || (r.data && r.data.subject) || 'toan' });
   async function loadAll() {
     const role = S.profile.role;
     const [qs, classes, cohorts] = await Promise.all([
-      fetchAll('questions', 'id,pool,grade,chapter,topic,type,level,data,deleted', q => q.eq('deleted', false)),
+      fetchAll('questions', 'id,subject,pool,grade,chapter,topic,type,level,data,deleted', q => q.eq('deleted', false)),
       fetchAll('classes'), fetchAll('cohorts')
     ]);
-    S.questions = qs.map(qFromRow); S.classes = classes; S.cohorts = cohorts;
+    S.questions = qs.map(qFromRow); S.allQuestions = S.questions; S.classes = classes; S.cohorts = cohorts;
     S.students = await fetchAll('students');
     if (role === 'admin' || role === 'teacher') {
-      const [exams, results, asg, subs, profs, links] = await Promise.all([
-        fetchAll('exams'), fetchAll('results'), fetchAll('assignments'), fetchAll('submissions'), fetchAll('profiles', 'id,role,username,full_name,subjects,created_at'), fetchAll('parent_links')]);
-      S.parentLinks = links;
+      const [exams, results, asg, subs, profs, links, tcs] = await Promise.all([
+        fetchAll('exams'), fetchAll('results'), fetchAll('assignments'), fetchAll('submissions'), fetchAll('profiles', 'id,role,username,full_name,subjects,phone,created_at'), fetchAll('parent_links'), fetchAll('teacher_classes')]);
+      S.parentLinks = links; S.teacherClasses = tcs;
       S.exams = exams.map(e => Object.assign({}, e.data, { id: e.id, name: e.name, updatedAt: e.updated_at, ownerId: e.owner_id }));
       S.results = results; S.assignments = asg; S.submissions = subs; S.profiles = profs;
     } else {
@@ -162,13 +162,15 @@
   // ======================= THAY LỚP LƯU TRỮ CỦA APP =======================
   function installAdapters() {
     // Ngân hàng câu hỏi
-    const qRow = (q) => ({ id: q.id, subject: 'toan', grade: +q.grade, chapter: q.chapter, topic: q.topic, type: q.type, level: q.level, pool: DT.poolOf(q), data: q, deleted: false, updated_at: new Date().toISOString() });
-    DT.Bank.all = () => S.questions;
+    const qRow = (q) => ({ id: q.id, subject: q.subject || 'toan', grade: +q.grade, chapter: q.chapter, topic: q.topic, type: q.type, level: q.level, pool: DT.poolOf(q), data: q, deleted: false, updated_at: new Date().toISOString() });
+    const curSub = () => G.CLOUD.subject || 'toan';
+    DT.Bank.all = () => S.questions.filter(q => (q.subject || 'toan') === curSub());
     DT.Bank.get = (id) => S.questions.find(q => q.id === id);
     DT.Bank.isModified = () => false;
     DT.Bank.save = (q) => {
       if (!q.id) q.id = 'c-' + q.grade + '-' + DT.uid();
       if (!q.pool) q.pool = 'exam';
+      if (!q.subject) q.subject = curSub();
       const i = S.questions.findIndex(x => x.id === q.id); if (i >= 0) S.questions[i] = q; else S.questions.push(q);
       push(sb.from('questions').upsert(qRow(q)), 'câu hỏi').catch(() => {});
       return q;
@@ -178,8 +180,8 @@
       push(sb.from('questions').update({ deleted: true, updated_at: new Date().toISOString() }).eq('id', id), 'câu hỏi').catch(() => {});
     };
     // Đề đã lưu
-    const exRow = (e) => ({ id: e.id, name: e.name || '', subject: 'toan', data: e, updated_at: new Date().toISOString() });
-    DT.Exams.all = () => S.exams.slice().sort((a, b) => String(b.updatedAt || '').localeCompare(String(a.updatedAt || '')));
+    const exRow = (e) => ({ id: e.id, name: e.name || '', subject: (e.config && e.config.subject) || 'toan', data: e, updated_at: new Date().toISOString() });
+    DT.Exams.all = () => S.exams.filter(e => ((e.config && e.config.subject) || 'toan') === curSub()).sort((a, b) => String(b.updatedAt || '').localeCompare(String(a.updatedAt || '')));
     DT.Exams.get = (id) => S.exams.find(e => e.id === id);
     DT.Exams.save = (exam) => {
       exam.updatedAt = new Date().toISOString();
@@ -245,59 +247,141 @@
     }, 1500));
   }
 
-  // ======================= GIAO DIỆN THEO VAI TRÒ =======================
-  const NEW_VIEWS = {
-    classes: { label: 'Lớp & học sinh', roles: ['admin', 'teacher'], render: renderClasses },
-    homework: { label: 'Bài tập về nhà', roles: ['admin', 'teacher', 'student', 'parent'], render: renderHomework },
-    scores: { label: 'Điểm', roles: ['student', 'parent'], render: renderScores },
-    approve: { label: 'Duyệt tài khoản', roles: ['admin'], render: renderApprove }
-  };
-  const TAB_ROLES = { create: ['admin', 'teacher'], bank: ['admin', 'teacher'], saved: ['admin', 'teacher'], grade: ['admin', 'teacher'], practice: ['admin', 'teacher', 'student'] };
-  function setupUI() {
-    installAdapters();
+  // ======================= MÔN HỌC =======================
+  const SUBJECT_LIST = [['toan', 'Toán'], ['van', 'Ngữ văn'], ['anh', 'Tiếng Anh'], ['ly', 'Vật lí'], ['hoa', 'Hóa học'], ['sinh', 'Sinh học'], ['su', 'Lịch sử'], ['dia', 'Địa lí'],
+    ['gdktpl', 'GD Kinh tế & Pháp luật'], ['tin', 'Tin học'], ['congnghe', 'Công nghệ'], ['gdtc', 'Giáo dục thể chất'], ['qpan', 'GD Quốc phòng & An ninh'], ['amnhac', 'Âm nhạc'], ['mithuat', 'Mĩ thuật'], ['khac', 'Khác']];
+  const subjectName = (code) => (SUBJECT_LIST.find(s => s[0] === code) || [code, code])[1];
+  const subjectCode = (x) => { const t = String(x || '').trim(); const f = SUBJECT_LIST.find(s => s[0] === t || s[1].toLowerCase() === t.toLowerCase()); return f ? f[0] : null; };
+  function mySubjects() {
     const role = S.profile.role;
-    document.body.dataset.role = role;
-    // thêm tab & view mới
-    const nav = $('.tabs'), main = $('main');
-    for (const [k, v] of Object.entries(NEW_VIEWS)) {
-      if (!$(`.tab[data-view="${k}"]`)) {
-        const b = document.createElement('button'); b.className = 'tab'; b.dataset.view = k; b.textContent = v.label; nav.appendChild(b);
-        const sec = document.createElement('section'); sec.id = 'view-' + k; sec.className = 'view'; sec.innerHTML = '<div class="panel" id="' + k + 'Root"></div>'; main.appendChild(sec);
+    if (role === 'teacher') { const c = [...new Set((S.profile.subjects || []).map(subjectCode).filter(Boolean))]; return c.length ? c : ['toan']; }
+    if (role === 'student') { const have = new Set(S.allQuestions.map(q => q.subject || 'toan')); return SUBJECT_LIST.map(s => s[0]).filter(c => have.has(c)); }
+    return SUBJECT_LIST.map(s => s[0]);
+  }
+  function setSubject(code) {
+    G.CLOUD.subject = code; G.CLOUD.subjectName = subjectName(code);
+    try { localStorage.setItem('dtt_subject', code); } catch (e) { /* bỏ qua */ }
+    const sel = $('#subjSel'); if (sel) sel.value = code;
+  }
+  // Chương/bài của môn khác Toán lấy từ chính ngân hàng câu hỏi của môn đó
+  function installSubjectAdapters() {
+    const origChaptersOf = DT.chaptersOf, origChapterById = DT.chapterById;
+    const custom = () => G.CLOUD.subject && G.CLOUD.subject !== 'toan';
+    DT.chaptersOf = (grade, sem) => {
+      if (!custom()) return origChaptersOf(grade, sem);
+      const map = new Map();
+      for (const q of DT.Bank.all()) if (String(q.grade) === String(grade) && q.chapter) {
+        if (!map.has(q.chapter)) map.set(q.chapter, new Set()); if (q.topic) map.get(q.chapter).add(q.topic);
       }
+      return [...map.entries()].sort((a, b) => a[0].localeCompare(b[0], 'vi', { numeric: true })).map(([id, t]) => ({ id, name: id, topics: [...t] }));
+    };
+    DT.chapterById = (id) => {
+      if (!custom()) return origChapterById(id);
+      if (!id || id === '__new') return null;
+      const topics = new Set(); DT.Bank.all().forEach(q => { if (q.chapter === id && q.topic) topics.add(q.topic); });
+      return { id, name: id, topics: [...topics] };
+    };
+  }
+
+  // ======================= KHUNG GIAO DIỆN: MENU TRÁI THEO NHÓM =======================
+  const VIEWS = {
+    approve: { render: (r) => renderApprove(r) }, classes: { render: (r) => renderClasses(r) },
+    homework: { render: (r) => renderHomework(r) }, scores: { render: (r) => renderScores(r) }
+  };
+  G.CLOUD.views = VIEWS;   // portal.js đăng ký thêm: home, accounts, assign, homeroom, gradebook, contact
+  const isHomeroom = () => (S.teacherClasses || []).some(t => t.teacher_id === S.profile.id && t.homeroom);
+  function menuFor(role) {
+    const staff = role === 'admin' || role === 'teacher';
+    const M = [];
+    M.push({ items: [{ v: 'home', i: '🏠', l: 'Tổng quan' }] });
+    if (role === 'admin') {
+      M.push({ g: 'Người dùng', items: [{ v: 'approve', i: '✅', l: 'Duyệt đăng ký', badge: 'approve' }, { v: 'accounts', i: '👥', l: 'Tài khoản' }] });
+      M.push({ g: 'Tổ chức', items: [{ v: 'classes', i: '🏫', l: 'Khóa, lớp & học sinh' }, { v: 'assign', i: '🧑‍🏫', l: 'Phân công giảng dạy' }] });
     }
-    $('.tab[data-view="practice"]').textContent = role === 'student' ? 'Luyện tập' : 'Luyện tập (HS)';
-    $('.tab[data-view="scores"]').textContent = role === 'parent' ? 'Điểm của con' : 'Điểm của tôi';
-    $('.tab[data-view="homework"]').textContent = role === 'parent' ? 'Bài tập của con' : 'Bài tập về nhà';
-    const allowed = (v) => (TAB_ROLES[v] || (NEW_VIEWS[v] && NEW_VIEWS[v].roles) || []).includes(role);
-    $$('.tab').forEach(b => {
-      b.hidden = !allowed(b.dataset.view);
-      b.onclick = () => openView(b.dataset.view);
-    });
-    // thanh người dùng
-    if (!$('#userBox')) {
-      const u = document.createElement('div'); u.id = 'userBox';
-      u.innerHTML = `<span>${esc(S.profile.full_name || S.profile.username)} · <b>${ROLE_NAME[role]}</b></span><button class="btn sm" id="btnPw">Đổi mật khẩu</button><button class="btn sm" id="btnLogout">Đăng xuất</button>`;
-      $('.topbar').appendChild(u);
-      $('#btnLogout').onclick = async () => { await sb.auth.signOut(); location.reload(); };
-      $('#btnPw').onclick = changePassword;
+    if (role === 'teacher' && isHomeroom()) M.push({ g: 'Lớp chủ nhiệm', items: [{ v: 'homeroom', i: '⭐', l: 'Lớp chủ nhiệm' }, { v: 'classes', i: '🏫', l: 'Lớp & học sinh' }] });
+    else if (role === 'teacher') M.push({ g: 'Lớp học', items: [{ v: 'classes', i: '🏫', l: 'Lớp & học sinh' }] });
+    if (staff) {
+      M.push({ g: 'Đề kiểm tra', items: [{ v: 'create', i: '📝', l: 'Tạo đề' }, { v: 'saved', i: '📂', l: 'Đề đã lưu', badge: 'saved' }, { v: 'bank', i: '🗂️', l: 'Ngân hàng câu hỏi' }] });
+      M.push({ g: 'Chấm & điểm', items: [{ v: 'grade', i: '📷', l: 'Chấm phiếu trắc nghiệm' }, { v: 'gradebook', i: '📊', l: 'Bảng điểm' }] });
+      M.push({ g: 'Học tập', items: [{ v: 'homework', i: '📚', l: 'Bài tập về nhà' }, { v: 'practice', i: '🎯', l: 'Luyện tập (xem như HS)' }] });
+      if (role === 'admin') M.push({ g: 'Lớp chủ nhiệm', items: [{ v: 'homeroom', i: '⭐', l: 'Xem theo lớp' }] });
     }
-    // các nút chế độ ngoại tuyến không còn phù hợp
+    if (role === 'student') {
+      M.push({ g: 'Học tập', items: [{ v: 'homework', i: '📚', l: 'Bài tập về nhà' }, { v: 'practice', i: '🎯', l: 'Luyện tập' }] });
+      M.push({ g: 'Kết quả', items: [{ v: 'scores', i: '📊', l: 'Điểm của tôi' }] });
+      M.push({ g: 'Liên hệ', items: [{ v: 'contact', i: '☎️', l: 'Giáo viên của lớp' }] });
+    }
+    if (role === 'parent') {
+      M.push({ g: 'Con tôi', items: [{ v: 'scores', i: '📊', l: 'Điểm kiểm tra' }, { v: 'homework', i: '📚', l: 'Bài tập về nhà' }] });
+      M.push({ g: 'Liên hệ', items: [{ v: 'contact', i: '☎️', l: 'Giáo viên chủ nhiệm' }] });
+    }
+    return M;
+  }
+  const VIEW_TITLE = {};
+  function setupUI() {
+    installAdapters(); installSubjectAdapters();
+    const role = S.profile.role;
+    document.body.dataset.role = role; document.body.classList.add('portal');
+    // chọn môn
+    const subs = mySubjects(); let saved = null; try { saved = localStorage.getItem('dtt_subject'); } catch (e) { /* bỏ qua */ }
+    setSubject(subs.includes(saved) ? saved : (subs[0] || 'toan'));
+    // tạo vùng chứa cho các trang mới
+    const main = $('main');
+    for (const k of ['approve', 'classes', 'homework', 'scores', 'home', 'accounts', 'assign', 'homeroom', 'gradebook', 'contact']) {
+      if (!$('#view-' + k)) { const sec = document.createElement('section'); sec.id = 'view-' + k; sec.className = 'view'; sec.innerHTML = `<div class="panel" id="${k}Root"></div>`; main.appendChild(sec); }
+    }
+    // thanh trên
+    const top = $('.topbar');
+    top.innerHTML = `<button class="nav-toggle" id="navToggle" aria-label="Menu">☰</button>
+      <div class="brand">∑ <b>${esc(CFG.SCHOOL_NAME || 'Trường THPT')}</b></div>
+      <span class="spacer"></span>
+      ${role !== 'parent' && subs.length > 1 ? `<label class="subj-pick">Môn <select id="subjSel">${subs.map(c => `<option value="${c}" ${c === G.CLOUD.subject ? 'selected' : ''}>${esc(subjectName(c))}</option>`).join('')}</select></label>` : (role !== 'parent' ? `<span class="subj-one">Môn: <b>${esc(G.CLOUD.subjectName)}</b></span>` : '')}
+      <div class="user-menu"><button class="user-btn" id="userBtn"><span class="avatar">${esc((S.profile.full_name || S.profile.username).trim().split(/\s+/).pop().slice(0, 1).toUpperCase())}</span><span class="user-txt"><b>${esc(S.profile.full_name || S.profile.username)}</b><small>${ROLE_NAME[role]}${isHomeroom() ? ' · GVCN' : ''}</small></span> ▾</button>
+        <div class="user-drop" id="userDrop"><div class="muted small">Đăng nhập: ${esc(S.profile.username)}</div><button id="btnPw">🔑 Đổi mật khẩu</button><button id="btnLogout">↩ Đăng xuất</button></div></div>`;
+    $('#userBtn').onclick = (e) => { e.stopPropagation(); $('#userDrop').classList.toggle('open'); };
+    document.addEventListener('click', () => { const d = $('#userDrop'); if (d) d.classList.remove('open'); });
+    $('#btnLogout').onclick = async () => { await sb.auth.signOut(); location.reload(); };
+    $('#btnPw').onclick = changePassword;
+    if ($('#subjSel')) $('#subjSel').onchange = (e) => { setSubject(e.target.value); G.__app.refresh(); openView(G.CLOUD.current || 'home'); toast('Đang làm việc với môn ' + G.CLOUD.subjectName + '.'); };
+    // menu trái
+    let nav = $('#sideNav'); if (!nav) { nav = document.createElement('aside'); nav.id = 'sideNav'; nav.className = 'no-print'; document.body.insertBefore(nav, main); }
+    const M = menuFor(role);
+    M.forEach(g => g.items.forEach(it => { VIEW_TITLE[it.v] = it.l; }));
+    nav.innerHTML = (role === 'parent' && S.students.length > 1 ? `<div class="nav-child"><label>Con của tôi<select id="navChild">${S.students.map(k => `<option value="${k.id}">${esc(k.full_name)} – ${esc((classOf(k.class_id) || {}).name || '')}</option>`).join('')}</select></label></div>`
+        : role === 'parent' && S.students[0] ? `<div class="nav-child">Con: <b>${esc(S.students[0].full_name)}</b><br><small>Lớp ${esc((classOf(S.students[0].class_id) || {}).name || '')}</small></div>` : '') +
+      M.map(g => `<div class="nav-group">${g.g ? `<div class="nav-title">${esc(g.g)}</div>` : ''}${g.items.map(it => `<button class="nav-item" data-v="${it.v}"><span class="nav-ico">${it.i}</span><span>${esc(it.l)}</span>${it.badge ? `<span class="nav-badge" data-badge="${it.badge}"></span>` : ''}</button>`).join('')}</div>`).join('');
+    $$('.nav-item', nav).forEach(b => b.onclick = () => { openView(b.dataset.v); document.body.classList.remove('nav-open'); });
+    $('#navToggle').onclick = (e) => { e.stopPropagation(); document.body.classList.toggle('nav-open'); };
+    main.onclick = () => document.body.classList.remove('nav-open');
+    const cs = $('#navChild'); if (cs) { if (hw.child) cs.value = hw.child; cs.onchange = (e) => { hw.child = e.target.value; openView(G.CLOUD.current); }; }
+    // nút cũ không còn dùng
     const roster = $('#grRoster'); if (roster) { roster.textContent = '👥 Lớp & học sinh'; roster.onclick = () => openView('classes'); }
     const backup = $('#btnBackup'); if (backup) backup.parentElement.hidden = true;
     G.__app.refresh();
     if (role === 'admin') loadRegistrations();
-    const first = ['create', 'homework', 'scores'].find(allowed) || 'practice';
-    openView(first);
+    updateBadges();
+    openView('home');
   }
+  function updateBadges() {
+    const b = $('[data-badge="approve"]'); if (b) { const n = (S.registrations || []).filter(r => r.status === 'pending').length; b.textContent = n || ''; b.hidden = !n; }
+    const s = $('[data-badge="saved"]'); if (s) { const n = DT.Exams.all().length; s.textContent = n || ''; s.hidden = !n; s.classList.add('light'); }
+  }
+  G.CLOUD.updateBadges = updateBadges;
   function openView(v) {
-    $$('.tab').forEach(x => x.classList.toggle('active', x.dataset.view === v));
+    G.CLOUD.current = v;
+    $$('.nav-item').forEach(x => x.classList.toggle('active', x.dataset.v === v));
     $$('.view').forEach(x => x.classList.toggle('active', x.id === 'view-' + v));
+    document.title = (VIEW_TITLE[v] || 'Tạo đề') + ' – ' + (CFG.SCHOOL_NAME || 'Trường THPT');
+    window.scrollTo(0, 0);
+    if (v === 'create') G.__app.refresh();
     if (v === 'bank') G.__app.renderBank();
     if (v === 'saved') G.__app.renderSaved();
     if (v === 'grade') GR.show();
     if (v === 'practice') G.Practice.mount($('#practiceRoot'));
-    if (NEW_VIEWS[v]) NEW_VIEWS[v].render($('#' + v + 'Root'));
+    if (VIEWS[v]) { const root = $('#' + v + 'Root'); try { const r = VIEWS[v].render(root); if (r && r.catch) r.catch(e => { console.error(e); root.innerHTML = `<p class="warn">Lỗi: ${esc(e.message)}</p>`; }); } catch (e) { console.error(e); root.innerHTML = `<p class="warn">Lỗi: ${esc(e.message)}</p>`; } }
+    updateBadges();
   }
+  G.CLOUD.openView = openView;
 
   function changePassword() {
     const d = dialog(`<h3>Đổi mật khẩu</h3><label>Mật khẩu mới<input name="p" type="password" minlength="6" required></label><label>Nhập lại<input name="p2" type="password" minlength="6" required></label>`, 'Đổi');
@@ -312,8 +396,14 @@
     const d = document.createElement('dialog'); d.className = 'cl-dialog';
     d.innerHTML = `<form method="dialog">${inner}<div class="modal-actions"><button value="cancel" class="btn" formnovalidate>Hủy</button><button value="ok" class="btn primary">${esc(okText)}</button></div></form>`;
     document.body.appendChild(d); d.showModal();
-    const api = { onok: null };
-    d.addEventListener('close', async () => { if (d.returnValue === 'ok' && api.onok) await api.onok(d.querySelector('form')); d.remove(); });
+    const api = { onok: null }; const form = d.querySelector('form');
+    // xử lý ngay khi bấm nút (không chờ sự kiện "close" – có trình duyệt phát trễ hoặc không phát)
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      if (e.submitter && e.submitter.value === 'ok' && api.onok) { const btn = e.submitter; btn.disabled = true; try { await api.onok(form); } finally { btn.disabled = false; } }
+      if (d.open) d.close(); d.remove();
+    });
+    d.addEventListener('cancel', () => setTimeout(() => d.remove(), 0));
     return api;
   }
 
@@ -343,8 +433,8 @@
     return data;
   }
   async function reloadPeople() {
-    const [st, profs, links] = await Promise.all([fetchAll('students'), fetchAll('profiles', 'id,role,username,full_name,subjects,created_at'), fetchAll('parent_links')]);
-    S.students = st; S.profiles = profs; S.parentLinks = links;
+    const [st, profs, links, tcs] = await Promise.all([fetchAll('students'), fetchAll('profiles', 'id,role,username,full_name,subjects,phone,created_at'), fetchAll('parent_links'), fetchAll('teacher_classes')]);
+    S.students = st; S.profiles = profs; S.parentLinks = links; S.teacherClasses = tcs;
   }
   const profileOf = (id) => (S.profiles || []).find(p => p.id === id);
   const parentsOf = (sid) => (S.parentLinks || []).filter(l => l.student_id === sid).map(l => profileOf(l.parent_id)).filter(Boolean);
@@ -529,7 +619,7 @@
     const dlg = document.querySelector('dialog.cl-dialog:last-of-type');
     dlg.querySelector('#credPrint').onclick = () => {
       $('#printArea').innerHTML = `<div class="code-sheet">${list.map(c => `<div class="code-card"><b>${esc(c.name)}</b>${c.cls ? ' – Lớp ' + esc(c.cls) : ''}<br>Vai trò: ${ROLE_NAME[c.role] || ''}<br>Tên đăng nhập: <span class="big-code">${esc(c.username)}</span><br>Mật khẩu: <span class="big-code">${esc(c.password)}</span><br><small>Đăng nhập tại ${esc(url)}. Nên đổi mật khẩu sau lần đăng nhập đầu (nút “Đổi mật khẩu”).</small></div>`).join('')}</div>`;
-      dlg.close('print'); document.body.classList.add('printing'); setTimeout(() => { window.print(); document.body.classList.remove('printing'); }, 50);
+      dlg.close(); dlg.remove(); document.body.classList.add('printing'); setTimeout(() => { window.print(); document.body.classList.remove('printing'); }, 50);
     };
     dlg.querySelector('#credXlsx').onclick = async () => {
       const blob = await GR.xlsx([[title], [], ['Họ tên', 'Vai trò', 'Lớp', 'Tên đăng nhập', 'Mật khẩu', 'Địa chỉ đăng nhập'], ...list.map(c => [c.name, ROLE_NAME[c.role] || '', c.cls || '', c.username, c.password, url])]);
@@ -544,12 +634,9 @@
     const { data, error } = await sb.from('registrations').select('*').order('created_at');
     if (error) { toast('Lỗi tải đơn đăng ký: ' + error.message, 5000); return; }
     S.registrations = data; updateApproveBadge();
+    if (G.CLOUD.current === 'home' && G.CLOUD.views.home) G.CLOUD.views.home.render(document.getElementById('homeRoot'));
   }
-  function updateApproveBadge() {
-    const t = $('.tab[data-view="approve"]'); if (!t) return;
-    const n = (S.registrations || []).filter(r => r.status === 'pending').length;
-    t.innerHTML = 'Duyệt tài khoản' + (n ? ` <span class="badge">${n}</span>` : '');
-  }
+  function updateApproveBadge() { if (G.CLOUD.updateBadges) G.CLOUD.updateBadges(); }
   const classMatch = (name, grade) => {
     const n = String(name || '').replace(/\s/g, '').toUpperCase(); if (!n) return null;
     return S.classes.filter(c => c.name.replace(/\s/g, '').toUpperCase() === n && (!grade || +c.grade === +grade))
@@ -677,7 +764,7 @@
       if (!st.classId) return toast('Hãy tạo lớp trước (tab Lớp & học sinh).');
       if (!st.picked.size) return toast('Hãy chọn ít nhất một câu.');
       const due = $('#hwDue', root).value;
-      const row = { class_id: st.classId, grade, chapter: st.chapter, topic: st.topic || null, title: $('#hwTitle', root).value.trim() || 'Bài tập về nhà', question_ids: [...st.picked], due_at: due ? new Date(due).toISOString() : null };
+      const row = { class_id: st.classId, subject: G.CLOUD.subject || 'toan', grade, chapter: st.chapter, topic: st.topic || null, title: $('#hwTitle', root).value.trim() || 'Bài tập về nhà', question_ids: [...st.picked], due_at: due ? new Date(due).toISOString() : null };
       const d = await push(sb.from('assignments').insert(row).select().single(), 'bài tập'); S.assignments.push(d); st.picked.clear(); toast('Đã giao bài.'); R();
     };
     $$('[data-hwopen]', root).forEach(b => b.onclick = () => { hw.open = hw.open === b.dataset.hwopen ? null : b.dataset.hwopen; R(); });
@@ -769,8 +856,13 @@
     });
   }
 
+  // API cho portal.js (các trang Tổng quan, Tài khoản, Phân công, Chủ nhiệm, Bảng điểm, Liên hệ)
+  G.CLOUD.api = { sb, S, esc, toast, tex, dialog, push, fetchAll, classOf, cohortOf, studentRow, ROLE_NAME, fmtDate, lastName, reloadPeople,
+    openView: (v) => openView(v), subjectName, subjectCode, SUBJECT_LIST, hw, randPw, showCredentials, createAccount, profileOf, parentsOf, loadRegistrations };
+
   // khởi động
   document.body.classList.add('auth-needed');
   sb.auth.onAuthStateChange((ev) => { if (ev === 'SIGNED_OUT') location.reload(); });
-  start();
+  // khởi động sau khi MỌI script (kể cả portal.js) đã nạp xong
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start); else setTimeout(start, 0);
 })(window);

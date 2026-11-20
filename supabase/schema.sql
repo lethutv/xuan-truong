@@ -20,7 +20,12 @@ create table if not exists public.subjects (
   code text primary key,
   name text not null
 );
-insert into public.subjects(code, name) values ('toan', 'Toán') on conflict do nothing;
+insert into public.subjects(code, name) values
+  ('toan', 'Toán'), ('van', 'Ngữ văn'), ('anh', 'Tiếng Anh'), ('ly', 'Vật lí'), ('hoa', 'Hóa học'), ('sinh', 'Sinh học'),
+  ('su', 'Lịch sử'), ('dia', 'Địa lí'), ('gdktpl', 'GD Kinh tế & Pháp luật'), ('tin', 'Tin học'), ('congnghe', 'Công nghệ'),
+  ('gdtc', 'Giáo dục thể chất'), ('qpan', 'GD Quốc phòng & An ninh'), ('amnhac', 'Âm nhạc'), ('mithuat', 'Mĩ thuật'),
+  ('khac', 'Khác'), ('gvcn', 'Chủ nhiệm')
+on conflict (code) do update set name = excluded.name;
 
 create table if not exists public.cohorts (            -- Khóa học, ví dụ 2025-2028
   id uuid primary key default gen_random_uuid(),
@@ -488,7 +493,7 @@ begin
   if g.role = 'student' then update public.students set user_id = uid where id = sid;
   elsif g.role = 'parent' then insert into public.parent_links (parent_id, student_id) values (uid, p_student) on conflict do nothing;
   elsif g.role = 'teacher' and p_class is not null then
-    insert into public.teacher_classes (teacher_id, class_id, subject, homeroom) values (uid, p_class, 'toan', true) on conflict do nothing;
+    insert into public.teacher_classes (teacher_id, class_id, subject, homeroom) values (uid, p_class, 'gvcn', true) on conflict do nothing;
   end if;
   delete from public.registrations where id = g.id;                                -- không giữ mật khẩu băm sau khi duyệt
   return uid;
@@ -507,6 +512,22 @@ create or replace function public.purge_old_registrations() returns void
 language sql security definer set search_path = public as
 $$ delete from public.registrations where status = 'rejected' and reviewed_at < now() - interval '30 days' $$;
 revoke execute on function public.purge_old_registrations() from public, anon, authenticated;
+
+-- Liên hệ giáo viên (chủ nhiệm & bộ môn) của lớp mình / lớp của con – không lộ thông tin tài khoản khác
+create or replace function public.my_contacts()
+returns table (student_id uuid, student_name text, class_name text, teacher_name text, teacher_phone text, subject text, homeroom boolean)
+language sql stable security definer set search_path = public as $$
+  select s.id, s.full_name, c.name, p.full_name, p.phone, coalesce(sj.name, tc.subject), tc.homeroom
+  from public.students s
+  join public.classes c on c.id = s.class_id
+  join public.teacher_classes tc on tc.class_id = c.id
+  join public.profiles p on p.id = tc.teacher_id
+  left join public.subjects sj on sj.code = tc.subject
+  where s.user_id = auth.uid() or s.id in (select public.my_children())
+  order by s.full_name, tc.homeroom desc, sj.name
+$$;
+revoke execute on function public.my_contacts() from public, anon;
+grant execute on function public.my_contacts() to authenticated;
 
 -- ---------------------------------------------------------------------
 -- Nộp bài tập về nhà – chấm trên máy chủ (HS không sửa được điểm)
