@@ -111,7 +111,10 @@
     const useFree = !roles.includes('name') && !roles.includes('last');
     for (let i = start; i < rows.length; i++) {
       const r = rows[i]; let rec = {};
-      if (useFree) rec = parseFreeLine(r.join('  '));
+      if (useFree) { const line = r.join('  ');
+        // dòng tiêu đề / tiêu đề bảng (không có ngày sinh) → bỏ qua
+        if (!DATE_IN_TEXT.test(line) && /(^|\s)(stt|ho\s*va\s*ten|hovaten|ngay\s*sinh|danh\s*sach|lop\s*\d)/.test(strip(line))) continue;
+        rec = parseFreeLine(line); }
       else {
         const last = [], first = [];
         r.forEach((c, j) => {
@@ -193,7 +196,9 @@
     try {
       await worker.setParameters({ preserve_interword_spaces: '1' });
       const { data } = await worker.recognize(await prepImage(file));
-      return data.text.replace(/[|]/g, ' ');
+      return data.text.replace(/[|]/g, ' ')
+        .replace(/(\p{Ll})(\p{Lu})/gu, '$1 $2')      // "NguyễnPhươngAnh" → "Nguyễn Phương Anh" (chữ dính khi nhận dạng)
+        .replace(/[ \t]{2,}/g, ' ');
     } finally { await worker.terminate(); }
   }
   const isImage = (file) => /^image\//.test(file.type) || /\.(png|jpe?g|webp|bmp|gif|heic)$/i.test(file.name);
