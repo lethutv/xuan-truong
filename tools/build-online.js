@@ -1,8 +1,8 @@
 // Đóng gói bản TRỰC TUYẾN để đăng lên web (Netlify, Cloudflare Pages, GitHub Pages…):
-//   node tools/build-online.js <SUPABASE_URL> <ANON_KEY> ["Tên trường"]
+//   node tools/build-online.js <SUPABASE_URL> <ANON_KEY> ["Tên trường"] [tên-miền, vd c3.louisapham.com]
 // Kết quả: thư mục dist/ – KHÔNG chứa các file ngân hàng câu hỏi (câu hỏi nằm trên Supabase, có phân quyền).
 const fs = require('fs'), path = require('path');
-const [url, key, school] = process.argv.slice(2);
+const [url, key, school, domain] = process.argv.slice(2);
 if (!url || !key) { console.error('Cách dùng: node tools/build-online.js <SUPABASE_URL> <ANON_KEY> ["Tên trường"]'); process.exit(1); }
 if (/service_role|sb_secret_/i.test(key) || (key.split('.')[1] && /service_role/.test(Buffer.from(key.split('.')[1], 'base64').toString()))) {
   console.error('Đây là khóa BÍ MẬT (service_role/secret). Hãy dùng khóa anon/publishable.'); process.exit(1);
@@ -17,6 +17,8 @@ let html = fs.readFileSync(path.join(root, 'index.html'), 'utf8').replace(/<scri
 const ver = Date.now().toString(36); html = html.replace(/\?v=\w+"/g, `?v=${ver}"`);
 fs.writeFileSync(path.join(dist, 'index.html'), html);
 fs.writeFileSync(path.join(dist, 'js', 'config.js'), `window.APP_CONFIG = ${JSON.stringify({ SUPABASE_URL: url, SUPABASE_ANON_KEY: key, LOGIN_DOMAIN: 'taikhoan.detoan.app', SCHOOL_NAME: school || 'Trường THPT' }, null, 2)};\n`);
+fs.writeFileSync(path.join(dist, '.nojekyll'), '');
+if (domain) fs.writeFileSync(path.join(dist, 'CNAME'), domain.trim() + '\n');
 // kiểm tra lần cuối: không còn dữ liệu ngân hàng
 const leak = fs.readdirSync(path.join(dist, 'js')).filter(f => /^bank-/.test(f));
 if (leak.length || /bank-1\d/.test(html)) { console.error('LỖI: còn file ngân hàng trong dist!'); process.exit(1); }

@@ -7,7 +7,7 @@
 --  Nguyên tắc:
 --   * Kho đề kiểm tra (pool = 'exam') CHỈ giáo viên/admin đọc được.
 --   * Học sinh, phụ huynh chỉ thấy kho luyện tập, bài tập của lớp mình và điểm của mình/con mình.
---   * Tài khoản được kích hoạt bằng mã (bảng invites) – không cần email thật.
+--   * KHÔNG có tự đăng ký: chỉ admin tạo tài khoản (tên đăng nhập + mật khẩu), không cần email thật.
 --   * Hết khóa (cohorts.end_date) → tài khoản học sinh & phụ huynh tự xóa (pg_cron chạy mỗi đêm).
 -- =====================================================================
 
@@ -72,18 +72,7 @@ create table if not exists public.teacher_classes (
   primary key (teacher_id, class_id, subject)
 );
 
-create table if not exists public.invites (            -- mã kích hoạt tài khoản
-  code text primary key,
-  role text not null check (role in ('admin', 'teacher', 'student', 'parent')),
-  full_name text not null default '',
-  subjects text[] not null default '{}',
-  student_id uuid references public.students(id) on delete cascade,   -- với HS: chính HS đó; với PH: con
-  created_by uuid references public.profiles(id) on delete set null,
-  used_by uuid references public.profiles(id) on delete set null,
-  used_at timestamptz,
-  expires_at timestamptz,
-  created_at timestamptz not null default now()
-);
+drop table if exists public.invites cascade;           -- (bản cũ dùng mã kích hoạt – đã bỏ)
 
 create table if not exists public.questions (
   id text primary key,
@@ -191,7 +180,7 @@ $$ select class_id from public.students where class_id is not null and (user_id 
 do $$
 declare t text;
 begin
-  foreach t in array array['subjects','cohorts','classes','profiles','students','parent_links','teacher_classes','invites','questions','exams','results','assignments','submissions']
+  foreach t in array array['subjects','cohorts','classes','profiles','students','parent_links','teacher_classes','questions','exams','results','assignments','submissions']
   loop
     execute format('alter table public.%I enable row level security', t);
   end loop;
@@ -230,12 +219,6 @@ create policy parent_links_self on public.parent_links for select to authenticat
 
 create policy teacher_classes_admin on public.teacher_classes for all to authenticated using (public.is_admin()) with check (public.is_admin());
 create policy teacher_classes_self on public.teacher_classes for select to authenticated using (teacher_id = auth.uid() or public.is_staff());
-
--- invites: GV tạo mã cho HS/PH; chỉ admin tạo mã GV/admin
-create policy invites_read on public.invites for select to authenticated using (public.is_staff());
-create policy invites_insert on public.invites for insert to authenticated
-  with check (public.is_admin() or (public.is_staff() and role in ('student', 'parent')));
-create policy invites_delete on public.invites for delete to authenticated using (public.is_admin() or (public.is_staff() and role in ('student', 'parent')));
 
 -- questions: GV/admin toàn quyền; HS/PH CHỈ đọc kho luyện tập
 create policy questions_staff on public.questions for all to authenticated using (public.is_staff()) with check (public.is_staff());
@@ -276,58 +259,105 @@ create trigger assignments_check before insert or update on public.assignments
   for each row execute function public.check_assignment_questions();
 
 -- ---------------------------------------------------------------------
--- Kích hoạt tài khoản bằng mã
+-- Tài khoản: KHÔNG tự đăng ký – chỉ admin tạo
+-- Đăng nhập bằng tên đăng nhập; email nội bộ = <tên>@<login_domain()> (phải trùng LOGIN_DOMAIN trong js/config.js)
 -- ---------------------------------------------------------------------
--- Kiểm tra mã trước khi đăng ký (gọi được khi chưa đăng nhập)
-create or replace function public.check_invite(p_code text) returns jsonb
-language plpgsql stable security definer set search_path = public as $$
-declare i public.invites; s public.students;
-begin
-  select * into i from public.invites where code = upper(trim(p_code));
-  if not found or i.used_at is not null or (i.expires_at is not null and i.expires_at < now()) then
-    return jsonb_build_object('ok', false);
-  end if;
-  if i.student_id is not null then select * into s from public.students where id = i.student_id; end if;
-  return jsonb_build_object('ok', true, 'role', i.role, 'full_name', i.full_name,
-    'student_name', s.full_name);
-end $$;
-grant execute on function public.check_invite(text) to anon, authenticated;
+drop function if exists public.check_invite(text);
+drop function if exists public.redeem_parent_invite(text);
+drop function if exists public.login_email(text);
 
--- Khi tài khoản mới được tạo (signUp với data.invite & data.username) → tạo hồ sơ theo mã
-create or replace function public.handle_new_user() returns trigger
-language plpgsql security definer set search_path = public as $$
-declare i public.invites; uname text; fname text;
+create or replace function public.login_domain() returns text language sql immutable as $$ select 'taikhoan.detoan.app' $$;
+
+-- Chặn mọi đăng ký qua API (signUp). Tài khoản chỉ được tạo bởi các hàm bên dưới.
+-- (Hàm trigger KHÔNG là security definer để biết ai đang tạo: GoTrue chạy dưới vai trò supabase_auth_admin.)
+drop trigger if exists on_auth_user_created on auth.users;
+drop function if exists public.handle_new_user();
+create or replace function public.block_self_signup() returns trigger language plpgsql as $$
 begin
-  select * into i from public.invites
-    where code = upper(trim(coalesce(new.raw_user_meta_data->>'invite', '')))
-    for update;
-  if not found or i.used_at is not null or (i.expires_at is not null and i.expires_at < now()) then
-    raise exception 'Mã kích hoạt không hợp lệ hoặc đã dùng';
+  if current_user = 'supabase_auth_admin' then
+    raise exception 'Không tự đăng ký được – tài khoản do quản trị viên cấp';
   end if;
-  uname := lower(trim(coalesce(new.raw_user_meta_data->>'username', split_part(new.email, '@', 1))));
-  fname := coalesce(nullif(trim(new.raw_user_meta_data->>'full_name'), ''), i.full_name, '');
-  if i.role = 'student' and i.student_id is not null then
-    select full_name into fname from public.students where id = i.student_id;
-  end if;
-  insert into public.profiles(id, role, username, full_name, subjects)
-    values (new.id, i.role, uname, fname, i.subjects);
-  if i.role = 'student' and i.student_id is not null then
-    update public.students set user_id = new.id where id = i.student_id;
-  elsif i.role = 'parent' and i.student_id is not null then
-    insert into public.parent_links(parent_id, student_id) values (new.id, i.student_id) on conflict do nothing;
-  end if;
-  update public.invites set used_by = new.id, used_at = now() where code = i.code;
   return new;
 end $$;
-drop trigger if exists on_auth_user_created on auth.users;
-create trigger on_auth_user_created after insert on auth.users
-  for each row execute function public.handle_new_user();
+drop trigger if exists block_self_signup on auth.users;
+create trigger block_self_signup before insert on auth.users
+  for each row execute function public.block_self_signup();
 
--- Tên đăng nhập còn trống không (gọi được khi chưa đăng nhập)
+-- Hàm nội bộ tạo tài khoản đăng nhập + hồ sơ
+create or replace function public._create_account(p_username text, p_password text, p_role text, p_full_name text, p_subjects text[])
+returns uuid language plpgsql security definer set search_path = public, auth, extensions as $$
+declare uid uuid := gen_random_uuid(); u text := lower(trim(coalesce(p_username, ''))); em text;
+begin
+  if u !~ '^[a-z0-9._]{3,30}$' then raise exception 'Tên đăng nhập "%" không hợp lệ (3–30 ký tự: chữ thường không dấu, số, dấu chấm, gạch dưới)', u; end if;
+  if length(coalesce(p_password, '')) < 6 then raise exception 'Mật khẩu tối thiểu 6 ký tự'; end if;
+  if p_role not in ('admin', 'teacher', 'student', 'parent') then raise exception 'Vai trò không hợp lệ'; end if;
+  em := u || '@' || public.login_domain();
+  if exists (select 1 from public.profiles where username = u) or exists (select 1 from auth.users where email = em) then
+    raise exception 'Tên đăng nhập "%" đã có người dùng', u;
+  end if;
+  insert into auth.users (instance_id, id, aud, role, email, encrypted_password, email_confirmed_at,
+      raw_app_meta_data, raw_user_meta_data, created_at, updated_at,
+      confirmation_token, recovery_token, email_change_token_new, email_change,
+      email_change_token_current, phone_change, phone_change_token, reauthentication_token)
+    values ('00000000-0000-0000-0000-000000000000', uid, 'authenticated', 'authenticated', em, crypt(p_password, gen_salt('bf')), now(),
+      '{"provider":"email","providers":["email"]}', jsonb_build_object('username', u, 'full_name', coalesce(p_full_name, '')), now(), now(),
+      '', '', '', '', '', '', '', '');
+  insert into auth.identities (id, user_id, provider_id, identity_data, provider, last_sign_in_at, created_at, updated_at)
+    values (gen_random_uuid(), uid, uid::text, jsonb_build_object('sub', uid::text, 'email', em, 'email_verified', true), 'email', now(), now(), now());
+  insert into public.profiles (id, role, username, full_name, subjects) values (uid, p_role, u, coalesce(p_full_name, ''), coalesce(p_subjects, '{}'));
+  return uid;
+end $$;
+revoke execute on function public._create_account(text, text, text, text, text[]) from public, anon, authenticated;
+
+-- Admin tạo tài khoản. Học sinh/phụ huynh phải gắn với một học sinh trong danh sách.
+create or replace function public.admin_create_account(p_username text, p_password text, p_role text,
+    p_full_name text default '', p_student uuid default null, p_subjects text[] default '{}')
+returns uuid language plpgsql security definer set search_path = public as $$
+declare uid uuid; s public.students;
+begin
+  if not public.is_admin() then raise exception 'Chỉ quản trị viên được tạo tài khoản'; end if;
+  if p_role in ('student', 'parent') then
+    select * into s from public.students where id = p_student;
+    if not found then raise exception 'Hãy chọn học sinh'; end if;
+    if p_role = 'student' and s.user_id is not null then raise exception 'Học sinh % đã có tài khoản', s.full_name; end if;
+  end if;
+  uid := public._create_account(p_username, p_password, p_role,
+           case when p_role = 'student' then s.full_name
+                when p_role = 'parent' and coalesce(p_full_name, '') = '' then 'Phụ huynh ' || s.full_name
+                else p_full_name end,
+           p_subjects);
+  if p_role = 'student' then update public.students set user_id = uid where id = s.id;
+  elsif p_role = 'parent' then insert into public.parent_links (parent_id, student_id) values (uid, s.id) on conflict do nothing;
+  end if;
+  return uid;
+end $$;
+
+-- Gắn thêm con cho tài khoản phụ huynh đã có (anh chị em ruột)
+create or replace function public.admin_link_parent(p_parent uuid, p_student uuid) returns boolean
+language plpgsql security definer set search_path = public as $$
+begin
+  if not public.is_admin() then raise exception 'Chỉ quản trị viên'; end if;
+  if (select role from public.profiles where id = p_parent) is distinct from 'parent' then raise exception 'Tài khoản không phải phụ huynh'; end if;
+  insert into public.parent_links (parent_id, student_id) values (p_parent, p_student) on conflict do nothing;
+  return true;
+end $$;
+
+-- Xóa tài khoản đăng nhập (giữ hồ sơ học sinh và điểm)
+create or replace function public.admin_delete_account(p_user uuid) returns boolean
+language plpgsql security definer set search_path = public, auth as $$
+begin
+  if not public.is_admin() then raise exception 'Chỉ quản trị viên'; end if;
+  if p_user = auth.uid() then raise exception 'Không tự xóa tài khoản đang đăng nhập'; end if;
+  delete from auth.users where id = p_user;
+  return true;
+end $$;
+
+-- Tên đăng nhập còn trống không (admin dùng khi gợi ý tên)
 create or replace function public.username_available(p_username text) returns boolean
 language sql stable security definer set search_path = public as
 $$ select not exists (select 1 from public.profiles where username = lower(trim(p_username))) $$;
-grant execute on function public.username_available(text) to anon, authenticated;
+revoke execute on function public.username_available(text) from public, anon;
+grant execute on function public.username_available(text) to authenticated;
 
 -- Đặt lại mật khẩu (không cần email): admin đặt cho mọi tài khoản, giáo viên đặt cho học sinh & phụ huynh
 create or replace function public.reset_password(p_user uuid, p_password text) returns boolean
@@ -342,24 +372,14 @@ begin
   return true;
 end $$;
 
--- Phụ huynh đã có tài khoản nhập thêm mã của con thứ hai
-create or replace function public.redeem_parent_invite(p_code text) returns jsonb
-language plpgsql security definer set search_path = public as $$
-declare i public.invites;
+-- Tạo ADMIN ĐẦU TIÊN – chỉ chạy được trong SQL Editor và chỉ khi chưa có admin nào
+create or replace function public.create_first_admin(p_username text, p_password text, p_full_name text default 'Quản trị viên')
+returns uuid language plpgsql security definer set search_path = public as $$
 begin
-  if public.my_role() <> 'parent' then raise exception 'Chỉ tài khoản phụ huynh dùng được chức năng này'; end if;
-  select * into i from public.invites where code = upper(trim(p_code)) for update;
-  if not found or i.role <> 'parent' or i.used_at is not null or (i.expires_at is not null and i.expires_at < now()) then
-    raise exception 'Mã không hợp lệ hoặc đã dùng';
-  end if;
-  insert into public.parent_links(parent_id, student_id) values (auth.uid(), i.student_id) on conflict do nothing;
-  update public.invites set used_by = auth.uid(), used_at = now() where code = i.code;
-  return jsonb_build_object('ok', true);
+  if exists (select 1 from public.profiles where role = 'admin') then raise exception 'Đã có admin. Hãy đăng nhập admin để tạo thêm tài khoản.'; end if;
+  return public._create_account(p_username, p_password, 'admin', p_full_name, '{}');
 end $$;
-
--- Đăng nhập bằng TÊN ĐĂNG NHẬP: app tự đổi thành email nội bộ <tên>@<LOGIN_DOMAIN trong config.js>,
--- nên không cần email thật và không cần hàm tra cứu email (tránh lộ thông tin).
-drop function if exists public.login_email(text);
+revoke execute on function public.create_first_admin(text, text, text) from public, anon, authenticated;
 
 -- ---------------------------------------------------------------------
 -- Nộp bài tập về nhà – chấm trên máy chủ (HS không sửa được điểm)
@@ -433,7 +453,6 @@ begin
       where l.parent_id = p.id and (c.id is null or c.end_date >= current_date))
   ) delete from auth.users u using lonely l where u.id = l.id;
   get diagnostics m = row_count;
-  delete from public.invites where expires_at < now() - interval '30 days' and used_at is null;
   return n + m;
 end $$;
 revoke execute on function public.purge_expired_accounts() from public, anon, authenticated;
@@ -468,16 +487,7 @@ create policy phieu_self on storage.objects for select to authenticated
          or (storage.foldername(name))[1] in (select public.my_children()::text)));
 
 -- ---------------------------------------------------------------------
--- Mã kích hoạt cho tài khoản ADMIN đầu tiên (chỉ tạo khi chưa có admin)
+-- BƯỚC CUỐI: tạo tài khoản admin đầu tiên. Bỏ dấu -- ở dòng dưới, đổi tên đăng nhập & mật khẩu rồi chạy:
+-- select public.create_first_admin('admin', 'DoiMatKhauNay123', 'Tên của bạn');
 -- ---------------------------------------------------------------------
-do $$
-declare c text;
-begin
-  if not exists (select 1 from public.profiles where role = 'admin')
-     and not exists (select 1 from public.invites where role = 'admin' and used_at is null) then
-    c := 'ADMIN-' || upper(substr(replace(gen_random_uuid()::text, '-', ''), 1, 10));
-    insert into public.invites(code, role, full_name) values (c, 'admin', 'Quản trị viên');
-  end if;
-end $$;
-select code as "MÃ KÍCH HOẠT ADMIN – dùng để tạo tài khoản admin đầu tiên"
-  from public.invites where role = 'admin' and used_at is null;
+select 'Đã tạo cơ sở dữ liệu xong. Tiếp theo: chạy seed.sql, rồi tạo admin bằng create_first_admin(...)' as "Kết quả";

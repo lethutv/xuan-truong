@@ -136,55 +136,81 @@ Kết quả chấm lưu trong trình duyệt (ảnh phiếu lưu trong IndexedDB
 
 ## Chế độ trực tuyến: đăng nhập Admin / Giáo viên / Học sinh / Phụ huynh (Supabase)
 
-Khi `js/config.js` để trống, app chạy **ngoại tuyến**: một giáo viên dùng, dữ liệu lưu trên trình duyệt, không cần đăng nhập. Khi điền thông tin Supabase, app chạy **trực tuyến** với 4 vai trò:
+Khi `js/config.js` để trống, app chạy **ngoại tuyến**: một giáo viên dùng, dữ liệu lưu trên trình duyệt, không cần đăng nhập. Khi điền thông tin Supabase, app chạy **trực tuyến** với 4 vai trò.
+
+**Không có nút đăng ký.** Mọi tài khoản do **Admin** tạo (tên đăng nhập + mật khẩu), sau đó in phiếu tài khoản phát cho từng người. Không cần email thật.
 
 | Vai trò | Làm được gì |
 |---|---|
-| **Admin** | Mọi việc của giáo viên. Thêm/sửa **khóa học** (ngày kết thúc khóa), tạo mã kích hoạt cho giáo viên, đặt lại mật khẩu mọi tài khoản, xóa ngay tài khoản hết khóa. |
-| **Giáo viên** (theo môn) | Tạo đề, quản lý ngân hàng, chấm phiếu, giao **bài tập về nhà theo từng bài học**, tạo lớp, nhập học sinh, phát mã kích hoạt cho học sinh và phụ huynh, đặt lại mật khẩu học sinh/phụ huynh. |
+| **Admin** | Mọi việc của giáo viên, cộng thêm: tạo và xóa **tài khoản** (giáo viên, học sinh, phụ huynh); thêm/sửa **khóa học** (ngày kết thúc); gắn phụ huynh với nhiều con; đặt lại mật khẩu mọi tài khoản; xóa ngay tài khoản hết khóa. |
+| **Giáo viên** (theo môn) | Tạo đề, quản lý ngân hàng, chấm phiếu, giao **bài tập về nhà theo từng bài học**, tạo lớp, nhập danh sách học sinh, đặt lại mật khẩu học sinh/phụ huynh. **Không** tạo được tài khoản. |
 | **Học sinh** (theo khóa, theo lớp) | Luyện tập (chỉ kho luyện tập), làm và nộp bài tập về nhà (chấm trên máy chủ), xem điểm và ảnh phiếu đã chấm của mình. |
-| **Phụ huynh** | Gắn với một hoặc nhiều con. Xem điểm, ảnh phiếu, tình trạng nộp bài tập của con. |
+| **Phụ huynh** | Gắn với một hoặc nhiều con (do admin gắn). Xem điểm, ảnh phiếu, tình trạng nộp bài tập của con. |
 
 **Bảo mật:**
 - Phân quyền nằm trong cơ sở dữ liệu (Row Level Security), không phụ thuộc giao diện.
-- Học sinh và phụ huynh **không đọc được kho đề kiểm tra**, kể cả khi tự gọi thẳng API.
-- Mỗi người chỉ xem được điểm và ảnh phiếu của mình hoặc của con.
-- Bài tập về nhà chỉ được dùng câu trong kho luyện tập.
-- Học sinh không tự sửa được điểm.
+- Gọi thẳng API đăng ký cũng bị máy chủ từ chối.
+- Học sinh và phụ huynh **không đọc được kho đề kiểm tra**.
+- Mỗi người chỉ xem điểm và ảnh phiếu của mình hoặc của con.
+- Học sinh không sửa được điểm.
+- Khi hết khóa, tài khoản học sinh và phụ huynh **tự xóa** lúc 2 giờ sáng mỗi ngày.
 
-`tools/test-schema.mjs` có 42 phép kiểm tra cho các quy tắc trên, chạy trên Postgres giả lập.
-
-**Tài khoản:**
-- Không cần email thật. Mỗi người tự **kích hoạt bằng mã** do nhà trường phát, sau đó tự đặt tên đăng nhập và mật khẩu.
-- Khi hết khóa (sau ngày kết thúc khóa), tài khoản học sinh và phụ huynh **tự xóa** lúc 2 giờ sáng mỗi ngày.
+`tools/test-schema.mjs` có 52 phép kiểm tra cho các quy tắc trên, chạy trên Postgres giả lập.
 
 ### Cài đặt (làm một lần)
 
 1. **Tạo dự án Supabase:** vào supabase.com → *New project*, chọn vùng Singapore.
-2. **Tắt xác nhận email:** *Authentication → Sign In / Providers → Email*, tắt **Confirm email**.
+2. **Tắt tự đăng ký:** *Authentication → Sign In / Providers*, tắt **Allow new users to sign up**. Máy chủ vốn đã chặn, đây là lớp bảo vệ thêm.
 3. **Bật lịch tự xóa:** *Database → Extensions*, bật **pg_cron**.
-4. **Tạo cơ sở dữ liệu:** *SQL Editor → New query*, dán toàn bộ `supabase/schema.sql` rồi bấm **Run**. Kết quả cuối cùng hiện **mã kích hoạt admin** (dạng `ADMIN-XXXXXXXXXX`); hãy ghi lại.
-5. **Nạp ngân hàng câu hỏi:** tạo một query mới, dán `supabase/seed.sql` (534 câu) rồi bấm **Run**.
-6. **Đóng gói bản web:** lấy *Project URL* và khóa **anon / publishable** ở *Project Settings → API* (**không** dùng khóa service_role/secret), rồi chạy:
+4. **Tạo cơ sở dữ liệu:** *SQL Editor → New query*, dán toàn bộ `supabase/schema.sql` rồi bấm **Run**.
+5. **Nạp ngân hàng câu hỏi:** tạo query mới, dán `supabase/seed.sql` (534 câu) rồi bấm **Run**.
+6. **Tạo tài khoản admin đầu tiên:** tạo query mới, chạy lệnh dưới (đổi tên đăng nhập, mật khẩu, họ tên):
 
-   ```powershell
-   node tools/build-online.js https://xxxx.supabase.co <khoa-anon> "Trường THPT ..."
+   ```sql
+   select public.create_first_admin('admin', 'MatKhauManh123', 'Họ tên của bạn');
    ```
 
-   Lệnh tạo thư mục `dist/`. Thư mục này **không chứa file ngân hàng câu hỏi**, vì câu hỏi nằm trên máy chủ.
-7. **Đăng web:** kéo thả thư mục `dist` vào https://app.netlify.com/drop (hoặc Cloudflare Pages) để có địa chỉ web.
-8. **Tạo tài khoản admin:** mở trang web → **Kích hoạt tài khoản** → nhập mã admin → đặt tên đăng nhập và mật khẩu.
+   Lệnh chỉ chạy được trong SQL Editor và chỉ khi chưa có admin nào.
+7. **Đóng gói bản web:** lấy *Project URL* và khóa **anon / publishable** ở *Project Settings → API* (không dùng khóa secret), rồi chạy:
 
-### Vận hành hằng năm
+   ```powershell
+   node tools/build-online.js https://xxxx.supabase.co <khoa-publishable> "Trường THPT ..."
+   ```
 
-1. **Admin:** tab *Lớp & học sinh* → **Thêm khóa** (ví dụ `2025-2028`, kết thúc 30/06/2028), rồi **Tạo mã cho giáo viên** và gửi mã cho từng giáo viên.
-2. **Giáo viên:**
-   - **Thêm lớp**, rồi **Nhập danh sách** học sinh (dán từ Excel: Họ tên · SBD · Ngày sinh).
-   - Bấm **Tạo mã kích hoạt**, rồi **In phiếu mã kích hoạt**. Mỗi học sinh có 1 mã học sinh và 1 mã phụ huynh.
-   - Phát mã cho học sinh và phụ huynh để tự kích hoạt.
-3. **Phụ huynh có nhiều con:** vào *Điểm của con* → **Thêm con**, nhập mã phụ huynh của con thứ hai.
-4. **Quên mật khẩu:** giáo viên bấm 🔒 cạnh tên học sinh để đặt mật khẩu mới.
-5. **Chấm phiếu:** điểm và ảnh phiếu đã tô màu tự hiện ở tài khoản học sinh và phụ huynh.
+   Lệnh tạo thư mục `dist/`, **không chứa file ngân hàng câu hỏi**.
+8. **Đăng web:** xem mục *Đăng web và gắn tên miền* bên dưới.
+
+### Vận hành hằng năm (Admin)
+
+1. Ở tab *Lớp & học sinh*:
+   - **Thêm khóa**, ví dụ `2025-2028`, kết thúc 30/06/2028.
+   - **Thêm lớp**.
+   - **Nhập danh sách** học sinh, dán từ Excel: Họ tên · SBD · Ngày sinh.
+2. Bấm **Tạo tài khoản HS & PH còn thiếu**:
+   - App tự đặt tên đăng nhập: `hs<SBD>` cho học sinh, `ph<SBD>` cho phụ huynh (ví dụ `hs10012345`, `ph10012345`). Mật khẩu ngẫu nhiên.
+   - **Mật khẩu chỉ hiện một lần.** Hãy bấm **In phiếu tài khoản** hoặc **Tải Excel** ngay để phát cho từng người.
+3. **Giáo viên:** bấm **Tạo tài khoản giáo viên** (họ tên, tên đăng nhập, môn dạy).
+4. **Phụ huynh có nhiều con:** ở dòng của con thứ hai, bấm **＋PH** → *Gắn với tài khoản phụ huynh đã có*.
+5. **Quên mật khẩu:** bấm 🔒 cạnh tên đăng nhập để đặt mật khẩu mới. Giáo viên cũng làm được việc này cho học sinh và phụ huynh.
+6. Người dùng nên bấm **Đổi mật khẩu** sau lần đăng nhập đầu tiên.
+
+### Đăng web và gắn tên miền
+
+App được đăng lên **GitHub Pages** từ nhánh `gh-pages` của repo, tại tên miền `c3.louisapham.com`:
+
+1. **Đóng gói và đẩy bản web:**
+
+   ```powershell
+   node tools/build-online.js <URL> <khoa-publishable> "Tên trường"
+   ```
+
+   Sau đó đẩy nội dung `dist/` lên nhánh `gh-pages`. Thư mục `dist/` đã có sẵn file `CNAME` chứa `c3.louisapham.com`.
+2. **Bật GitHub Pages:** *GitHub → repo → Settings → Pages*, chọn *Source: Deploy from a branch → `gh-pages` / root*. *Custom domain* đặt là `c3.louisapham.com`, sau đó tick **Enforce HTTPS** khi nút này sáng.
+3. **Thêm bản ghi DNS:** *Cloudflare → louisapham.com → DNS → Add record*:
+
+   | Type | Name | Target | Proxy status |
+   |---|---|---|---|
+   | `CNAME` | `c3` | `lethutv.github.io` | **DNS only** (mây xám) |
 
 ## Cần bổ sung trước khi dùng thực tế
 
@@ -216,7 +242,7 @@ js/grading.js       Danh sách học sinh, chấm điểm, tô màu, xuất Exce
 js/practice.js      Luyện tập cho học sinh (chỉ kho luyện tập) và xuất trang riêng
 js/config.js        Cấu hình Supabase (để trống = ngoại tuyến)
 js/cloud.js         Chế độ trực tuyến: đăng nhập, đồng bộ, lớp & học sinh, bài tập về nhà, xem điểm
-supabase/schema.sql Cơ sở dữ liệu, phân quyền (RLS), kích hoạt bằng mã, tự xóa tài khoản hết khóa
+supabase/schema.sql Cơ sở dữ liệu, phân quyền (RLS), admin tạo tài khoản, tự xóa tài khoản hết khóa
 supabase/seed.sql   Ngân hàng câu hỏi mẫu (534 câu) để nạp lên Supabase
 tools/build-online.js  Đóng gói bản web trực tuyến (không kèm ngân hàng câu hỏi)
 tools/make-seed.js  Sinh lại seed.sql từ các file bank-*.js

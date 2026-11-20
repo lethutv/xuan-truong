@@ -18,7 +18,7 @@
   const ROLE_NAME = { admin: 'Quản trị', teacher: 'Giáo viên', student: 'Học sinh', parent: 'Phụ huynh' };
   const emailOf = (u) => `${String(u).trim().toLowerCase()}@${CFG.LOGIN_DOMAIN || 'taikhoan.detoan.app'}`;
   const fmtDate = (d) => d ? new Date(d).toLocaleString('vi-VN', { dateStyle: 'short', timeStyle: 'short' }) : '';
-  const S = { user: null, profile: null, questions: [], exams: [], students: [], classes: [], cohorts: [], results: [], invites: [], assignments: [], submissions: [], teachers: [] };
+  const S = { user: null, profile: null, questions: [], exams: [], students: [], classes: [], cohorts: [], results: [], assignments: [], submissions: [], profiles: [], parentLinks: [] };
   G.CLOUD.state = S;
   const isStaff = () => S.profile && (S.profile.role === 'admin' || S.profile.role === 'teacher');
 
@@ -43,66 +43,22 @@
     const el = document.createElement('div'); el.id = 'authOverlay';
     el.innerHTML = `<div class="auth-box">
       <div class="auth-brand">∑ <b>Tạo đề Toán</b><span>${esc(CFG.SCHOOL_NAME || '')}</span></div>
-      <div class="seg auth-tabs"><button class="active" data-t="login">Đăng nhập</button><button data-t="act">Kích hoạt tài khoản</button></div>
       <form id="fLogin" class="auth-form">
-        <label>Tên đăng nhập<input name="u" autocomplete="username" required></label>
+        <label>Tên đăng nhập<input name="u" autocomplete="username" autocapitalize="none" required></label>
         <label>Mật khẩu<input name="p" type="password" autocomplete="current-password" required></label>
         <button class="btn primary block">Đăng nhập</button>
-        <p class="muted small">Quên mật khẩu? Nhờ giáo viên chủ nhiệm hoặc quản trị đặt lại.</p>
-      </form>
-      <form id="fAct" class="auth-form" hidden>
-        <label>Mã kích hoạt (do nhà trường cấp)<input name="code" required placeholder="VD: HS-7K2M9Q4T"></label>
-        <div id="actInfo" class="small"></div>
-        <div id="actMore" hidden>
-          <label id="actNameL">Họ và tên<input name="name"></label>
-          <label>Tên đăng nhập (chữ thường, số, dấu chấm)<input name="u" pattern="[a-z0-9._]{3,30}" autocomplete="username"></label>
-          <label>Mật khẩu (tối thiểu 6 ký tự)<input name="p" type="password" minlength="6" autocomplete="new-password"></label>
-          <label>Nhập lại mật khẩu<input name="p2" type="password" minlength="6" autocomplete="new-password"></label>
-        </div>
-        <button class="btn primary block" id="actBtn">Kiểm tra mã</button>
+        <p class="muted small">Tài khoản do quản trị viên nhà trường cấp. Quên mật khẩu? Liên hệ giáo viên chủ nhiệm hoặc quản trị viên.</p>
       </form>
       <div id="authMsg" class="small warn"></div>
     </div>`;
     document.body.appendChild(el);
     const msg = (m) => { $('#authMsg').textContent = m || ''; };
-    $$('.auth-tabs button', el).forEach(b => b.onclick = () => {
-      $$('.auth-tabs button', el).forEach(x => x.classList.toggle('active', x === b));
-      $('#fLogin').hidden = b.dataset.t !== 'login'; $('#fAct').hidden = b.dataset.t !== 'act'; msg('');
-    });
     $('#fLogin').onsubmit = async (e) => {
       e.preventDefault(); msg('Đang đăng nhập…');
       const f = e.target; const u = f.u.value.trim();
       const { error } = await sb.auth.signInWithPassword({ email: u.includes('@') ? u : emailOf(u), password: f.p.value });
       if (error) return msg(/invalid/i.test(error.message) ? 'Sai tên đăng nhập hoặc mật khẩu.' : error.message);
       msg(''); start();
-    };
-    let invite = null;
-    $('#fAct').onsubmit = async (e) => {
-      e.preventDefault(); const f = e.target; msg('');
-      if (!invite) {
-        const { data, error } = await sb.rpc('check_invite', { p_code: f.code.value });
-        if (error || !data || !data.ok) return msg('Mã không hợp lệ, đã dùng hoặc đã hết hạn.');
-        invite = data; f.code.readOnly = true;
-        $('#actInfo').innerHTML = `Mã dành cho: <b>${ROLE_NAME[data.role]}</b>` + (data.student_name ? (data.role === 'parent' ? ` của học sinh <b>${esc(data.student_name)}</b>` : ` <b>${esc(data.student_name)}</b>`) : (data.full_name ? ` <b>${esc(data.full_name)}</b>` : ''));
-        $('#actMore').hidden = false; $('#actBtn').textContent = 'Tạo tài khoản';
-        $('#actNameL').hidden = data.role === 'student';
-        f.name.value = data.full_name || ''; f.u.required = f.p.required = f.p2.required = true;
-        return;
-      }
-      const u = f.u.value.trim().toLowerCase();
-      if (!/^[a-z0-9._]{3,30}$/.test(u)) return msg('Tên đăng nhập 3–30 ký tự: chữ thường không dấu, số, dấu chấm, gạch dưới.');
-      if (f.p.value !== f.p2.value) return msg('Hai mật khẩu không khớp.');
-      const { data: free } = await sb.rpc('username_available', { p_username: u });
-      if (free === false) return msg('Tên đăng nhập đã có người dùng, hãy chọn tên khác.');
-      msg('Đang tạo tài khoản…');
-      const { data, error } = await sb.auth.signUp({ email: emailOf(u), password: f.p.value, options: { data: { invite: f.code.value.trim().toUpperCase(), username: u, full_name: f.name.value.trim() } } });
-      if (error) return msg(/database/i.test(error.message) ? 'Không tạo được tài khoản: mã đã dùng hoặc tên đăng nhập trùng.' : error.message);
-      if (!data.session) {
-        const r = await sb.auth.signInWithPassword({ email: emailOf(u), password: f.p.value });
-        if (r.error) return msg('Đã tạo tài khoản nhưng chưa đăng nhập được. Hãy kiểm tra "Confirm email" đã tắt trong Supabase. (' + r.error.message + ')');
-      }
-      toast(`Đã tạo tài khoản "${u}". Hãy ghi nhớ tên đăng nhập và mật khẩu.`, 6000);
-      start();
     };
   }
 
@@ -131,11 +87,11 @@
     S.questions = qs.map(qFromRow); S.classes = classes; S.cohorts = cohorts;
     S.students = await fetchAll('students');
     if (role === 'admin' || role === 'teacher') {
-      const [exams, results, invites, asg, subs, profs, links] = await Promise.all([
-        fetchAll('exams'), fetchAll('results'), fetchAll('invites'), fetchAll('assignments'), fetchAll('submissions'), fetchAll('profiles', 'id,role,username,full_name,subjects,created_at'), fetchAll('parent_links')]);
+      const [exams, results, asg, subs, profs, links] = await Promise.all([
+        fetchAll('exams'), fetchAll('results'), fetchAll('assignments'), fetchAll('submissions'), fetchAll('profiles', 'id,role,username,full_name,subjects,created_at'), fetchAll('parent_links')]);
       S.parentLinks = links;
       S.exams = exams.map(e => Object.assign({}, e.data, { id: e.id, name: e.name, updatedAt: e.updated_at, ownerId: e.owner_id }));
-      S.results = results; S.invites = invites; S.assignments = asg; S.submissions = subs; S.profiles = profs;
+      S.results = results; S.assignments = asg; S.submissions = subs; S.profiles = profs;
     } else {
       const [results, asg, subs] = await Promise.all([fetchAll('results'), fetchAll('assignments'), fetchAll('submissions')]);
       S.results = results; S.assignments = asg; S.submissions = subs;
@@ -301,41 +257,66 @@
     return api;
   }
 
-  // ======================= LỚP & HỌC SINH (GV/Admin) =======================
+  // ======================= LỚP & HỌC SINH, TÀI KHOẢN =======================
   const cst = { classId: '' };
-  const randCode = (prefix) => { const A = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; const b = new Uint32Array(8); crypto.getRandomValues(b); return prefix + '-' + [...b].map(x => A[x % A.length]).join(''); };
+  const PW_CHARS = 'abcdefghjkmnpqrstuvwxyz23456789';
+  const randPw = () => { const b = new Uint32Array(8); crypto.getRandomValues(b); return [...b].map(x => PW_CHARS[x % PW_CHARS.length]).join(''); };
+  const noAccent = (t) => String(t || '').normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/đ/g, 'd').replace(/Đ/g, 'D').toLowerCase();
+  // gợi ý tên đăng nhập: hs<SBD> / ph<SBD>; không có SBD thì tên + chữ cái đầu họ đệm
+  function baseUsername(s, role) {
+    if (s && s.sbd) return (role === 'parent' ? 'ph' : 'hs') + s.sbd;
+    const w = noAccent(s ? s.full_name : '').split(/\s+/).filter(Boolean);
+    const core = w.length ? w[w.length - 1] + '.' + w.slice(0, -1).map(x => x[0]).join('') : 'user';
+    return (role === 'parent' ? 'ph.' : '') + core.replace(/[^a-z0-9.]/g, '');
+  }
+  async function freeUsername(base) {
+    const taken = new Set((S.profiles || []).map(p => p.username));
+    let u = base.slice(0, 26), i = 1;
+    while (taken.has(u)) u = base.slice(0, 26) + (++i);
+    const { data } = await sb.rpc('username_available', { p_username: u });
+    if (data === false) return freeUsername(base + '_');
+    return u;
+  }
+  async function createAccount(username, password, role, fullName, studentId, subjects) {
+    const { data, error } = await sb.rpc('admin_create_account', { p_username: username, p_password: password, p_role: role, p_full_name: fullName || '', p_student: studentId || null, p_subjects: subjects || [] });
+    if (error) throw error;
+    return data;
+  }
+  async function reloadPeople() {
+    const [st, profs, links] = await Promise.all([fetchAll('students'), fetchAll('profiles', 'id,role,username,full_name,subjects,created_at'), fetchAll('parent_links')]);
+    S.students = st; S.profiles = profs; S.parentLinks = links;
+  }
+  const profileOf = (id) => (S.profiles || []).find(p => p.id === id);
+  const parentsOf = (sid) => (S.parentLinks || []).filter(l => l.student_id === sid).map(l => profileOf(l.parent_id)).filter(Boolean);
+
   function renderClasses(root) {
     const admin = S.profile.role === 'admin';
     if (!cst.classId && S.classes[0]) cst.classId = S.classes[0].id;
     const cls = S.classes.slice().sort((a, b) => (b.school_year || '').localeCompare(a.school_year || '') || a.name.localeCompare(b.name, 'vi'));
     const studs = S.students.filter(s => s.class_id === cst.classId).sort((a, b) => lastName(a.full_name).localeCompare(lastName(b.full_name), 'vi'));
-    const inv = (sid, role) => S.invites.find(i => i.student_id === sid && i.role === role && !i.used_at);
-    const accOf = (s) => s.user_id ? (S.profiles || []).find(p => p.id === s.user_id) : null;
-    const parentsOf = (sid) => (S.parentLinks || []).filter(l => l.student_id === sid);
     root.innerHTML = `
       <div class="cl-grid">
         <div>
           <h2>Khóa học</h2>
           <table class="gr-table"><tr><th>Khóa</th><th>Kết thúc</th></tr>${S.cohorts.map(c => `<tr><td>${esc(c.name)}</td><td>${esc(c.end_date)}${admin ? ` <button class="btn sm" data-editco="${c.id}">Sửa</button>` : ''}</td></tr>`).join('') || '<tr><td colspan="2" class="muted">Chưa có khóa.</td></tr>'}</table>
           ${admin ? `<button class="btn sm" id="addCohort">＋ Thêm khóa</button>` : ''}
-          <p class="muted small">Sau ngày kết thúc khóa, tài khoản học sinh & phụ huynh của khóa đó tự xóa (2 giờ sáng mỗi ngày).${admin ? ' <button class="btn sm danger" id="purgeNow">Xóa ngay tài khoản hết khóa</button>' : ''}</p>
+          <p class="muted small">Sau ngày kết thúc khóa, tài khoản học sinh và phụ huynh của khóa đó tự xóa (2 giờ sáng mỗi ngày).${admin ? ' <button class="btn sm danger" id="purgeNow">Xóa ngay tài khoản hết khóa</button>' : ''}</p>
           <h2>Lớp</h2>
           <div class="cl-classes">${cls.map(c => `<button class="cl-class ${c.id === cst.classId ? 'active' : ''}" data-cls="${c.id}"><b>${esc(c.name)}</b><small>Khối ${c.grade} · ${esc(c.school_year)} · ${S.students.filter(s => s.class_id === c.id).length} HS</small></button>`).join('') || '<p class="muted">Chưa có lớp.</p>'}</div>
           <button class="btn sm" id="addClass">＋ Thêm lớp</button>
-          ${admin ? renderTeachersBlock() : ''}
+          ${admin ? renderStaffBlock() : ''}
         </div>
         <div>
           ${cst.classId ? `<h2>Học sinh lớp ${esc((classOf(cst.classId) || {}).name || '')}</h2>
           <div class="row-actions" style="margin-bottom:6px">
             <button class="btn sm primary" id="importStud">＋ Nhập danh sách</button>
-            <button class="btn sm" id="mkCodes">🔑 Tạo mã kích hoạt cho HS & PH chưa có</button>
-            <button class="btn sm" id="printCodes">🖨 In phiếu mã kích hoạt</button>
+            ${admin ? `<button class="btn sm" id="mkAccounts">👤 Tạo tài khoản HS & PH còn thiếu</button>` : '<span class="muted small">Tài khoản học sinh/phụ huynh do quản trị viên tạo.</span>'}
           </div>
           <div class="table-wrap"><table class="gr-table"><thead><tr><th>Họ tên</th><th>SBD</th><th>Tài khoản HS</th><th>Phụ huynh</th><th></th></tr></thead><tbody>
-          ${studs.map(s => { const a = accOf(s); const ih = inv(s.id, 'student'), ip = inv(s.id, 'parent'); const np = parentsOf(s.id).length;
+          ${studs.map(s => { const a = s.user_id ? profileOf(s.user_id) : null; const ps = parentsOf(s.id);
             return `<tr><td>${esc(s.full_name)}</td><td>${esc(s.sbd || '')}</td>
-            <td>${a ? `✅ ${esc(a.username)} <button class="btn sm" data-reset="${a.id}" title="Đặt lại mật khẩu">🔒</button>` : ih ? `<code>${ih.code}</code>` : '<span class="muted">chưa có mã</span>'}</td>
-            <td>${np ? `✅ ${np} TK` : ''} ${ip ? `<code>${ip.code}</code>` : ''}</td>
+            <td>${a ? `${esc(a.username)} <button class="btn sm" data-reset="${a.id}" title="Đặt lại mật khẩu">🔒</button>${admin ? `<button class="btn sm danger" data-delacc="${a.id}" title="Xóa tài khoản">✕</button>` : ''}` : `<span class="muted">chưa có</span>${admin ? ` <button class="btn sm" data-mk1="${s.id}">Tạo</button>` : ''}`}</td>
+            <td>${ps.map(p => `${esc(p.username)} <button class="btn sm" data-reset="${p.id}" title="Đặt lại mật khẩu">🔒</button>`).join('<br>')}${admin ? ` <button class="btn sm" data-linkpar="${s.id}" title="Thêm phụ huynh cho học sinh này">＋PH</button>` : ''}</td>
             <td><button class="btn sm" data-edst="${s.id}">Sửa</button> <button class="btn sm danger" data-rmst="${s.id}">✕</button></td></tr>`; }).join('') || '<tr><td colspan="5" class="muted">Lớp chưa có học sinh.</td></tr>'}
           </tbody></table></div>` : '<p class="muted">Hãy tạo lớp trước.</p>'}
         </div>
@@ -344,7 +325,7 @@
     $$('[data-cls]', root).forEach(b => b.onclick = () => { cst.classId = b.dataset.cls; R(); });
     if ($('#addCohort', root)) $('#addCohort', root).onclick = () => {
       const y = new Date().getFullYear();
-      dialog(`<h3>Thêm khóa học</h3><label>Tên khóa<input name="n" required value="${y}-${y + 3}"></label><label>Ngày kết thúc (tài khoản tự xóa sau ngày này)<input name="d" type="date" required value="${y + 3}-06-30"></label>`, 'Thêm').onok = async (f) => {
+      dialog(`<h3>Thêm khóa học</h3><label>Tên khóa<input name="n" required value="${y}-${y + 3}"></label><label>Ngày kết thúc (tài khoản HS/PH tự xóa sau ngày này)<input name="d" type="date" required value="${y + 3}-06-30"></label>`, 'Thêm').onok = async (f) => {
         const d = await push(sb.from('cohorts').insert({ name: f.n.value.trim(), end_date: f.d.value }).select().single(), 'khóa'); S.cohorts.push(d); R();
       };
     };
@@ -356,7 +337,7 @@
     });
     if ($('#purgeNow', root)) $('#purgeNow', root).onclick = async () => {
       if (!confirm('Xóa ngay tài khoản học sinh & phụ huynh của các khóa đã kết thúc?')) return;
-      const { data, error } = await sb.rpc('admin_purge_now'); toast(error ? error.message : `Đã xóa ${data} tài khoản.`);
+      const { data, error } = await sb.rpc('admin_purge_now'); toast(error ? error.message : `Đã xóa ${data} tài khoản.`); await reloadPeople(); R();
     };
     $('#addClass', root).onclick = () => {
       const y = new Date().getMonth() >= 7 ? new Date().getFullYear() : new Date().getFullYear() - 1;
@@ -366,9 +347,23 @@
         S.classes.push(d); cst.classId = d.id; R();
       };
     };
+    if (admin) bindStaff(root, R);
+    $$('[data-reset]', root).forEach(b => b.onclick = () => {
+      const p = profileOf(b.dataset.reset);
+      dialog(`<h3>Đặt lại mật khẩu – ${esc(p ? p.username : '')}</h3><label>Mật khẩu mới (≥ 6 ký tự)<input name="p" required minlength="6" value="${randPw()}"></label><p class="muted small">Ghi lại và đưa cho người dùng.</p>`, 'Đặt lại').onok = async (f) => {
+        const { error } = await sb.rpc('reset_password', { p_user: b.dataset.reset, p_password: f.p.value });
+        if (error) return toast(error.message, 5000);
+        showCredentials([{ name: p ? p.full_name : '', role: p ? p.role : '', username: p ? p.username : '', password: f.p.value }], 'Mật khẩu mới');
+      };
+    });
+    $$('[data-delacc]', root).forEach(b => b.onclick = async () => {
+      const p = profileOf(b.dataset.delacc); if (!confirm(`Xóa tài khoản đăng nhập "${p.username}"? (Hồ sơ học sinh và điểm vẫn giữ)`)) return;
+      const { error } = await sb.rpc('admin_delete_account', { p_user: p.id }); if (error) return toast(error.message, 5000);
+      await reloadPeople(); toast('Đã xóa tài khoản.'); R();
+    });
     if (!cst.classId) return;
     $('#importStud', root).onclick = () => {
-      dialog(`<h3>Nhập học sinh vào lớp ${esc(classOf(cst.classId).name)}</h3><p class="muted small">Dán từ Excel, mỗi dòng: <b>Họ và tên · SBD · Ngày sinh (dd/mm/yyyy, không bắt buộc)</b>. HS trùng SBD sẽ được cập nhật.</p><textarea name="t" rows="10" style="width:100%"></textarea>`, 'Nhập').onok = async (f) => {
+      dialog(`<h3>Nhập học sinh vào lớp ${esc(classOf(cst.classId).name)}</h3><p class="muted small">Dán từ Excel, mỗi dòng: <b>Họ và tên · SBD · Ngày sinh (dd/mm/yyyy, không bắt buộc)</b>. Học sinh trùng SBD sẽ được cập nhật.</p><textarea name="t" rows="10" style="width:100%"></textarea>`, 'Nhập').onok = async (f) => {
         const c = classOf(cst.classId); const rows = f.t.value.split(/\r?\n/).map(l => l.split(/\t|;/).map(x => x.trim())).filter(r => r[0] && !/họ.*tên/i.test(r[0]));
         const recs = []; const errs = [];
         rows.forEach((r, i) => {
@@ -384,19 +379,53 @@
         S.students = await fetchAll('students'); toast(`Đã nhập ${recs.length} học sinh.`); R();
       };
     };
-    $('#mkCodes', root).onclick = async () => {
-      const rows = [];
-      for (const s of studs) {
-        if (!s.user_id && !inv(s.id, 'student')) rows.push({ code: randCode('HS'), role: 'student', student_id: s.id, full_name: s.full_name });
-        if (!inv(s.id, 'parent')) rows.push({ code: randCode('PH'), role: 'parent', student_id: s.id, full_name: 'Phụ huynh ' + s.full_name });
+    if ($('#mkAccounts', root)) $('#mkAccounts', root).onclick = async () => {
+      const need = studs.filter(s => !s.user_id || !parentsOf(s.id).length);
+      if (!need.length) return toast('Mọi học sinh trong lớp đã có tài khoản HS và PH.');
+      if (!confirm(`Tạo tài khoản cho ${need.length} học sinh (kèm tài khoản phụ huynh nếu chưa có)?`)) return;
+      const creds = [], errs = [];
+      for (const s of need) {
+        try {
+          if (!s.user_id) { const u = await freeUsername(baseUsername(s, 'student')); const pw = randPw(); await createAccount(u, pw, 'student', '', s.id); creds.push({ name: s.full_name, role: 'student', username: u, password: pw, cls: classOf(s.class_id).name }); (S.profiles = S.profiles || []).push({ username: u }); }
+          if (!parentsOf(s.id).length) { const u = await freeUsername(baseUsername(s, 'parent')); const pw = randPw(); await createAccount(u, pw, 'parent', '', s.id); creds.push({ name: 'Phụ huynh ' + s.full_name, role: 'parent', username: u, password: pw, cls: classOf(s.class_id).name }); S.profiles.push({ username: u }); }
+        } catch (e) { errs.push(`${s.full_name}: ${e.message}`); }
       }
-      if (!rows.length) return toast('Mọi học sinh đã có mã.');
-      const d = await push(sb.from('invites').insert(rows).select(), 'mã kích hoạt'); S.invites.push(...d); toast(`Đã tạo ${d.length} mã.`); R();
+      await reloadPeople(); R();
+      if (errs.length) toast('Lỗi: ' + errs.join('; '), 8000);
+      if (creds.length) showCredentials(creds, `Tài khoản lớp ${classOf(cst.classId).name}`);
     };
-    $('#printCodes', root).onclick = () => printCodes(studs, inv);
+    $$('[data-mk1]', root).forEach(b => b.onclick = async () => {
+      const s = studentRow(b.dataset.mk1); const u0 = await freeUsername(baseUsername(s, 'student'));
+      dialog(`<h3>Tài khoản học sinh – ${esc(s.full_name)}</h3><label>Tên đăng nhập<input name="u" required pattern="[a-z0-9._]{3,30}" value="${u0}"></label><label>Mật khẩu<input name="p" required minlength="6" value="${randPw()}"></label>`, 'Tạo').onok = async (f) => {
+        try { await createAccount(f.u.value.trim(), f.p.value, 'student', '', s.id); } catch (e) { return toast(e.message, 5000); }
+        await reloadPeople(); R(); showCredentials([{ name: s.full_name, role: 'student', username: f.u.value.trim(), password: f.p.value, cls: (classOf(s.class_id) || {}).name }], 'Tài khoản mới');
+      };
+    });
+    $$('[data-linkpar]', root).forEach(b => b.onclick = async () => {
+      const s = studentRow(b.dataset.linkpar); const u0 = await freeUsername(baseUsername(s, 'parent'));
+      const parents = (S.profiles || []).filter(p => p.role === 'parent');
+      dialog(`<h3>Phụ huynh của ${esc(s.full_name)}</h3>
+        <label class="check"><input type="radio" name="m" value="new" checked> Tạo tài khoản phụ huynh mới</label>
+        <label>Tên đăng nhập<input name="u" pattern="[a-z0-9._]{3,30}" value="${u0}"></label><label>Mật khẩu<input name="p" minlength="6" value="${randPw()}"></label><label>Họ tên phụ huynh (không bắt buộc)<input name="n"></label>
+        <label class="check"><input type="radio" name="m" value="old"> Gắn với tài khoản phụ huynh đã có (anh/chị/em ruột)</label>
+        <label><select name="par"><option value="">—</option>${parents.map(p => `<option value="${p.id}">${esc(p.username)} – ${esc(p.full_name)}</option>`).join('')}</select></label>`, 'Lưu').onok = async (f) => {
+        try {
+          if (f.m.value === 'old') {
+            if (!f.par.value) return toast('Hãy chọn tài khoản phụ huynh.');
+            const { error } = await sb.rpc('admin_link_parent', { p_parent: f.par.value, p_student: s.id }); if (error) throw error;
+            await reloadPeople(); R(); toast('Đã gắn phụ huynh.');
+          } else {
+            await createAccount(f.u.value.trim(), f.p.value, 'parent', f.n.value.trim(), s.id);
+            await reloadPeople(); R();
+            showCredentials([{ name: f.n.value.trim() || 'Phụ huynh ' + s.full_name, role: 'parent', username: f.u.value.trim(), password: f.p.value, cls: (classOf(s.class_id) || {}).name }], 'Tài khoản mới');
+          }
+        } catch (e) { toast(e.message, 5000); }
+      };
+    });
     $$('[data-rmst]', root).forEach(b => b.onclick = async () => {
-      const s = studentRow(b.dataset.rmst); if (!confirm(`Xóa học sinh ${s.full_name}? (Điểm và bài nộp của em cũng bị xóa khỏi hồ sơ)`)) return;
-      await push(sb.from('students').delete().eq('id', s.id), 'học sinh'); S.students = S.students.filter(x => x.id !== s.id); R();
+      const s = studentRow(b.dataset.rmst); if (!confirm(`Xóa học sinh ${s.full_name}? (Điểm và bài nộp của em cũng bị xóa)`)) return;
+      if (s.user_id && admin) await sb.rpc('admin_delete_account', { p_user: s.user_id });
+      await push(sb.from('students').delete().eq('id', s.id), 'học sinh'); await reloadPeople(); R();
     });
     $$('[data-edst]', root).forEach(b => b.onclick = () => {
       const s = studentRow(b.dataset.edst);
@@ -406,37 +435,47 @@
         await push(sb.from('students').update(patch).eq('id', s.id), 'học sinh'); Object.assign(s, patch); R();
       };
     });
-    $$('[data-reset]', root).forEach(b => b.onclick = () => {
-      dialog(`<h3>Đặt lại mật khẩu</h3><label>Mật khẩu mới (≥ 6 ký tự)<input name="p" required minlength="6" value="${Math.random().toString(36).slice(2, 10)}"></label><p class="muted small">Ghi lại và đưa cho học sinh/phụ huynh.</p>`, 'Đặt lại').onok = async (f) => {
-        const { error } = await sb.rpc('reset_password', { p_user: b.dataset.reset, p_password: f.p.value }); toast(error ? error.message : 'Đã đặt lại mật khẩu.', 5000);
-      };
-    });
-    if (admin) bindTeachers(root, R);
   }
   const lastName = (n) => { const p = String(n || '').trim().split(/\s+/); return p[p.length - 1] + ' ' + n; };
-  function renderTeachersBlock() {
-    const ts = (S.profiles || []).filter(p => p.role === 'teacher' || p.role === 'admin');
-    const pend = S.invites.filter(i => (i.role === 'teacher' || i.role === 'admin') && !i.used_at);
-    return `<h2>Giáo viên</h2><table class="gr-table">${ts.map(t => `<tr><td>${esc(t.full_name)}</td><td>${esc(t.username)}</td><td>${ROLE_NAME[t.role]}${t.subjects && t.subjects.length ? ' · ' + t.subjects.join(', ') : ''}</td><td>${t.id !== S.profile.id ? `<button class="btn sm" data-reset="${t.id}">🔒</button>` : ''}</td></tr>`).join('')}
-      ${pend.map(i => `<tr class="muted"><td>${esc(i.full_name)}</td><td colspan="2">chờ kích hoạt: <code>${i.code}</code> (${ROLE_NAME[i.role]})</td><td><button class="btn sm danger" data-rminv="${i.code}">✕</button></td></tr>`).join('')}</table>
-      <button class="btn sm" id="addTeacher">＋ Tạo mã cho giáo viên</button>`;
+
+  function renderStaffBlock() {
+    const ts = (S.profiles || []).filter(p => p.role === 'teacher' || p.role === 'admin').sort((a, b) => a.role.localeCompare(b.role));
+    return `<h2>Giáo viên & quản trị</h2><table class="gr-table">${ts.map(t => `<tr><td>${esc(t.full_name)}</td><td>${esc(t.username)}</td><td>${ROLE_NAME[t.role]}${t.subjects && t.subjects.length ? ' · ' + t.subjects.join(', ') : ''}</td>
+      <td>${t.id !== S.profile.id ? `<button class="btn sm" data-reset="${t.id}" title="Đặt lại mật khẩu">🔒</button><button class="btn sm danger" data-delacc="${t.id}" title="Xóa tài khoản">✕</button>` : '<span class="muted small">bạn</span>'}</td></tr>`).join('')}</table>
+      <button class="btn sm" id="addTeacher">＋ Tạo tài khoản giáo viên</button>`;
   }
-  function bindTeachers(root, R) {
+  function bindStaff(root, R) {
     $('#addTeacher', root).onclick = () => {
-      dialog(`<h3>Mã kích hoạt cho giáo viên</h3><label>Họ và tên<input name="n" required></label><label>Môn dạy<select name="s"><option value="toan">Toán</option></select></label><label>Vai trò<select name="r"><option value="teacher">Giáo viên</option><option value="admin">Quản trị</option></select></label>`, 'Tạo mã').onok = async (f) => {
-        const row = { code: randCode('GV'), role: f.r.value, full_name: f.n.value.trim(), subjects: [f.s.value] };
-        const d = await push(sb.from('invites').insert(row).select().single(), 'mã'); S.invites.push(d); R();
-        dialog(`<h3>Mã kích hoạt</h3><p>Gửi cho <b>${esc(d.full_name)}</b>:</p><p class="big-code">${d.code}</p><p class="muted small">Vào trang web → Kích hoạt tài khoản → nhập mã này.</p>`, 'Xong');
+      const d = dialog(`<h3>Tạo tài khoản giáo viên</h3><label>Họ và tên<input name="n" required></label><label>Tên đăng nhập<input name="u" required pattern="[a-z0-9._]{3,30}" placeholder="vd: gv.hoa"></label>
+        <label>Mật khẩu<input name="p" required minlength="6" value="${randPw()}"></label><label>Môn dạy<select name="s"><option value="toan">Toán</option></select></label>
+        <label>Vai trò<select name="r"><option value="teacher">Giáo viên</option><option value="admin">Quản trị viên</option></select></label>`, 'Tạo');
+      const form = document.querySelector('dialog.cl-dialog:last-of-type form');
+      form.n.oninput = () => { if (!form.u.dataset.touched) { const w = noAccent(form.n.value).split(/\s+/).filter(Boolean); form.u.value = w.length ? 'gv.' + w[w.length - 1] + w.slice(0, -1).map(x => x[0]).join('') : ''; } };
+      form.u.oninput = () => { form.u.dataset.touched = 1; };
+      d.onok = async (f) => {
+        try { await createAccount(f.u.value.trim(), f.p.value, f.r.value, f.n.value.trim(), null, [f.s.value]); } catch (e) { return toast(e.message, 5000); }
+        await reloadPeople(); R();
+        showCredentials([{ name: f.n.value.trim(), role: f.r.value, username: f.u.value.trim(), password: f.p.value }], 'Tài khoản mới');
       };
     };
-    $$('[data-rminv]', root).forEach(b => b.onclick = async () => { await push(sb.from('invites').delete().eq('code', b.dataset.rminv), 'mã'); S.invites = S.invites.filter(i => i.code !== b.dataset.rminv); R(); });
   }
-  function printCodes(studs, inv) {
-    const c = classOf(cst.classId); const url = location.origin + location.pathname;
-    const cards = studs.map(s => { const a = inv(s.id, 'student'), p = inv(s.id, 'parent'); if (!a && !p) return '';
-      return `<div class="code-card"><b>${esc(s.full_name)}</b> – Lớp ${esc(c.name)}<br>${a ? `Mã học sinh: <span class="big-code">${a.code}</span><br>` : '<i>Học sinh đã có tài khoản</i><br>'}${p ? `Mã phụ huynh: <span class="big-code">${p.code}</span><br>` : ''}<small>Truy cập ${esc(url)} → “Kích hoạt tài khoản”, nhập mã, tự đặt tên đăng nhập và mật khẩu. Mỗi mã chỉ dùng một lần.</small></div>`; }).join('');
-    const pa = $('#printArea'); pa.innerHTML = `<div class="code-sheet">${cards || '<p>Không có mã nào. Hãy bấm “Tạo mã kích hoạt” trước.</p>'}</div>`;
-    document.body.classList.add('printing'); setTimeout(() => { window.print(); document.body.classList.remove('printing'); }, 50);
+  // Hiện & in phiếu tài khoản (mật khẩu chỉ hiện MỘT LẦN, máy chủ không lưu mật khẩu gốc)
+  function showCredentials(list, title) {
+    const url = location.origin + location.pathname;
+    const rows = list.map(c => `<tr><td>${esc(c.name)}</td><td>${ROLE_NAME[c.role] || ''}</td><td>${esc(c.cls || '')}</td><td><code>${esc(c.username)}</code></td><td><code>${esc(c.password)}</code></td></tr>`).join('');
+    const d = dialog(`<h3>${esc(title)}</h3><p class="warn small">Mật khẩu chỉ hiện lần này. Hãy in hoặc tải danh sách ngay.</p>
+      <div class="table-wrap" style="max-height:50vh;overflow:auto"><table class="gr-table"><tr><th>Họ tên</th><th>Vai trò</th><th>Lớp</th><th>Tên đăng nhập</th><th>Mật khẩu</th></tr>${rows}</table></div>
+      <div class="row-actions" style="margin-top:8px"><button type="button" class="btn" id="credPrint">🖨 In phiếu tài khoản</button><button type="button" class="btn" id="credXlsx">⬇ Tải Excel</button></div>`, 'Đã lưu, đóng');
+    const dlg = document.querySelector('dialog.cl-dialog:last-of-type');
+    dlg.querySelector('#credPrint').onclick = () => {
+      $('#printArea').innerHTML = `<div class="code-sheet">${list.map(c => `<div class="code-card"><b>${esc(c.name)}</b>${c.cls ? ' – Lớp ' + esc(c.cls) : ''}<br>Vai trò: ${ROLE_NAME[c.role] || ''}<br>Tên đăng nhập: <span class="big-code">${esc(c.username)}</span><br>Mật khẩu: <span class="big-code">${esc(c.password)}</span><br><small>Đăng nhập tại ${esc(url)}. Nên đổi mật khẩu sau lần đăng nhập đầu (nút “Đổi mật khẩu”).</small></div>`).join('')}</div>`;
+      dlg.close('print'); document.body.classList.add('printing'); setTimeout(() => { window.print(); document.body.classList.remove('printing'); }, 50);
+    };
+    dlg.querySelector('#credXlsx').onclick = async () => {
+      const blob = await GR.xlsx([[title], [], ['Họ tên', 'Vai trò', 'Lớp', 'Tên đăng nhập', 'Mật khẩu', 'Địa chỉ đăng nhập'], ...list.map(c => [c.name, ROLE_NAME[c.role] || '', c.cls || '', c.username, c.password, url])]);
+      const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'tai-khoan.xlsx'; a.click();
+    };
+    return d;
   }
 
   // ======================= BÀI TẬP VỀ NHÀ =======================
@@ -545,15 +584,10 @@
   }
   function childPicker(kids) {
     return `<div class="row-actions" style="margin-bottom:8px">${kids.length > 1 ? `<select id="childSel">${kids.map(k => `<option value="${k.id}" ${k.id === hw.child ? 'selected' : ''}>${esc(k.full_name)} – ${esc((classOf(k.class_id) || {}).name || '')}</option>`).join('')}</select>` : kids[0] ? `<b>${esc(kids[0].full_name)}</b> – lớp ${esc((classOf(kids[0].class_id) || {}).name || '')}` : ''}
-      <span class="spacer"></span><button class="btn sm" id="addChild">＋ Thêm con (nhập mã phụ huynh)</button></div>`;
+      </div>`;
   }
   function bindChildPicker(root, R) {
     const s = $('#childSel', root); if (s) s.onchange = (e) => { hw.child = e.target.value; R(); };
-    $('#addChild', root).onclick = () => dialog(`<h3>Thêm con</h3><label>Mã phụ huynh của con<input name="c" required></label>`, 'Thêm').onok = async (f) => {
-      const { error } = await sb.rpc('redeem_parent_invite', { p_code: f.c.value });
-      if (error) return toast(error.message, 5000);
-      await loadAll(); toast('Đã thêm.'); R();
-    };
   }
 
   // ======================= ĐIỂM (HS / PH) =======================
