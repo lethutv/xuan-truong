@@ -148,6 +148,8 @@
     ]);
     S.questions = qs.map(qFromRow); S.allQuestions = S.questions; S.classes = classes; S.cohorts = cohorts;
     S.students = await fetchAll('students');
+    // cán sự lớp thấy cả lớp: luôn để hồ sơ của chính học sinh lên đầu (các trang dùng S.students[0] = bản thân)
+    if (S.profile && S.profile.role === 'student') S.students.sort((a, b) => (b.user_id === S.profile.id) - (a.user_id === S.profile.id));
     if (role === 'admin' || role === 'teacher') {
       const [exams, results, asg, subs, profs, links, tcs] = await Promise.all([
         fetchAll('exams'), fetchAll('results'), fetchAll('assignments'), fetchAll('submissions'), fetchAll('profiles', 'id,role,username,full_name,subjects,phone,created_at'), fetchAll('parent_links'), fetchAll('teacher_classes')]);
@@ -317,6 +319,8 @@
     }
     if (role === 'student') {
       M.push({ g: 'Học tập', items: [{ v: 'homework', i: '📚', l: 'Bài tập về nhà' }, { v: 'practice', i: '🎯', l: 'Luyện tập' }] });
+      const meS = S.students.find(x => x.user_id === S.profile.id);
+      if (meS && meS.officer) M.push({ g: 'Cán sự lớp', items: [{ v: 'officer', i: '🎖️', l: 'Điểm danh & thi đua lớp' }] });
       M.push({ g: 'Kết quả', items: [{ v: 'scores', i: '📊', l: 'Điểm của tôi' }, { v: 'conduct', i: '🗓️', l: 'Chuyên cần & nề nếp' }] });
       M.push({ g: 'Liên hệ', items: [{ v: 'contact', i: '☎️', l: 'Giáo viên của lớp' }] });
     }
@@ -336,7 +340,7 @@
     setSubject(subs.includes(saved) ? saved : (subs[0] || 'toan'));
     // tạo vùng chứa cho các trang mới
     const main = $('main');
-    for (const k of ['approve', 'classes', 'homework', 'scores', 'home', 'accounts', 'assign', 'homeroom', 'gradebook', 'contact', 'conduct']) {
+    for (const k of ['approve', 'classes', 'homework', 'scores', 'home', 'accounts', 'assign', 'homeroom', 'gradebook', 'contact', 'conduct', 'officer']) {
       if (!$('#view-' + k)) { const sec = document.createElement('section'); sec.id = 'view-' + k; sec.className = 'view'; sec.innerHTML = `<div class="panel" id="${k}Root"></div>`; main.appendChild(sec); }
     }
     // thanh trên
@@ -405,8 +409,8 @@
     const RI = G.RosterImport; let parsed = { out: [], skipped: [] };
     const d = document.createElement('dialog'); d.className = 'cl-dialog ri-dialog';
     d.innerHTML = `<h3>Nhập học sinh vào lớp ${esc(c.name)}</h3>
-      <p class="muted small">Chọn tệp <b>Excel (.xlsx), Word (.docx), CSV/TXT</b> hoặc dán danh sách vào ô dưới. Cột thừa (STT, giới tính, dân tộc, địa chỉ, SĐT…) tự bỏ qua — chỉ lưu <b>họ tên, SBD, ngày sinh</b>. Có hay không có dòng tiêu đề đều được.</p>
-      <div class="row-actions"><label class="btn sm">📂 Chọn tệp<input type="file" id="riFile" accept=".xlsx,.xlsm,.docx,.csv,.txt,.xls,.doc" hidden></label><span class="muted small" id="riFileName"></span></div>
+      <p class="muted small">Chọn tệp <b>Excel (.xlsx), Word (.docx), CSV/TXT</b> hoặc <b>ảnh chụp danh sách</b> (JPG/PNG), kéo thả tệp vào đây, dán ảnh chụp màn hình (Ctrl+V) hoặc dán chữ vào ô dưới. Cột thừa (STT, giới tính, tài khoản, mật khẩu, SĐT…) tự bỏ qua — chỉ lưu <b>họ tên, SBD, ngày sinh</b>.</p>
+      <div class="row-actions"><label class="btn sm primary">📂 Chọn tệp / ảnh<input type="file" id="riFile" accept=".xlsx,.xlsm,.docx,.csv,.txt,.xls,.doc,image/*" hidden></label><label class="btn sm">📷 Chụp ảnh<input type="file" id="riCam" accept="image/*" capture="environment" hidden></label><span class="muted small" id="riFileName"></span></div>
       <textarea id="riText" rows="7" style="width:100%;margin-top:6px" placeholder="VD:&#10;STT  Họ và tên        Ngày sinh   Giới tính&#10;1    NGUYỄN VĂN AN     05/02/2011  Nam&#10;2    Trần Thị Bình     21/04/2011  Nữ"></textarea>
       <div id="riPrev" class="ri-prev"></div>
       <div class="modal-actions"><button class="btn" id="riCancel">Hủy</button><button class="btn primary" id="riOk" disabled>Lưu</button></div>`;
@@ -424,12 +428,22 @@
       $('#riOk', d).disabled = !p.out.length; $('#riOk', d).textContent = p.out.length ? `Lưu ${p.out.length} học sinh` : 'Lưu';
     };
     let tm; $('#riText', d).oninput = () => { clearTimeout(tm); tm = setTimeout(() => { parsed = RI.parse($('#riText', d).value); $('#riFileName', d).textContent = ''; show(); }, 250); };
-    $('#riFile', d).onchange = async (e) => {
-      const file = e.target.files[0]; if (!file) return; $('#riFileName', d).textContent = 'Đang đọc ' + file.name + '…';
-      try { parsed = await RI.readFile(file); $('#riFileName', d).textContent = file.name; show(); }
-      catch (err) { $('#riFileName', d).textContent = ''; $('#riPrev', d).innerHTML = `<p class="warn small">${esc(err.message)}</p>`; }
-      e.target.value = '';
+    const STEP = { 'loading tesseract core': 'Đang tải bộ nhận dạng chữ', 'loading language traineddata': 'Đang tải dữ liệu tiếng Việt (lần đầu ~10 MB)', 'initializing api': 'Đang khởi động', 'recognizing text': 'Đang đọc chữ trong ảnh' };
+    const readOne = async (file) => {
+      if (!file) return; const lbl = $('#riFileName', d); lbl.textContent = 'Đang đọc ' + (file.name || 'ảnh') + '…';
+      try {
+        parsed = await RI.readFile(file, (st, p) => { lbl.textContent = `${STEP[st] || st}… ${Math.round(p * 100)}%`; });
+        if (parsed.fromImage) { $('#riText', d).value = parsed.text.trim(); lbl.textContent = '✔ Đã đọc chữ từ ảnh — kiểm tra bảng bên dưới, sửa trực tiếp trong ô chữ nếu có tên đọc sai.'; }
+        else lbl.textContent = file.name;
+        show();
+      } catch (err) { lbl.textContent = ''; $('#riPrev', d).innerHTML = `<p class="warn small">${esc(err.message || String(err))}</p>`; }
     };
+    $('#riFile', d).onchange = (e) => { readOne(e.target.files[0]); e.target.value = ''; };
+    $('#riCam', d).onchange = (e) => { readOne(e.target.files[0]); e.target.value = ''; };
+    d.addEventListener('paste', (e) => { const it = [...(e.clipboardData || {}).items || []].find(x => x.kind === 'file'); if (it) { e.preventDefault(); readOne(it.getAsFile()); } });
+    d.addEventListener('dragover', (e) => { e.preventDefault(); d.classList.add('drag'); });
+    d.addEventListener('dragleave', () => d.classList.remove('drag'));
+    d.addEventListener('drop', (e) => { e.preventDefault(); d.classList.remove('drag'); readOne(e.dataTransfer.files[0]); });
     $('#riCancel', d).onclick = (e) => { e.preventDefault(); close(); };
     d.addEventListener('cancel', () => setTimeout(() => d.remove(), 0));
     $('#riOk', d).onclick = async (e) => {
@@ -917,6 +931,25 @@
   // khởi động
   document.body.classList.add('auth-needed');
   sb.auth.onAuthStateChange((ev) => { if (ev === 'SIGNED_OUT') location.reload(); });
+  // báo khi có phiên bản mới (trình duyệt hay giữ bản cũ trong bộ nhớ đệm)
+  (function watchUpdate() {
+    const meta = document.querySelector('meta[name="app-build"]'); if (!meta) return;
+    let shown = false;
+    const check = async () => {
+      if (shown) return;
+      try {
+        const html = await (await fetch('index.html?_=' + Date.now(), { cache: 'no-store' })).text();
+        const m = /name="app-build" content="(\w+)"/.exec(html);
+        if (m && m[1] !== meta.content) {
+          shown = true; const bar = document.createElement('div'); bar.className = 'update-bar';
+          bar.innerHTML = '🔄 Đã có phiên bản mới của trang. <button class="btn sm primary">Tải lại ngay</button>';
+          bar.querySelector('button').onclick = () => location.reload(); document.body.appendChild(bar);
+        }
+      } catch (e) { /* mất mạng: bỏ qua */ }
+    };
+    setTimeout(check, 3000); setInterval(check, 5 * 60 * 1000);
+    document.addEventListener('visibilitychange', () => { if (!document.hidden) check(); });
+  })();
   // khởi động sau khi MỌI script (kể cả portal.js) đã nạp xong
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start); else setTimeout(start, 0);
 })(window);

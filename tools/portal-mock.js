@@ -28,8 +28,10 @@
   const submissions = [{ id: 's1', assignment_id: 'a1', student_id: id(101), score: 2, max_score: 2, detail: {}, answers: {}, submitted_at: now }];
   const registrations = [{ id: 'g1', role: 'teacher', full_name: 'Đỗ Thị Hoa', phone: '0933444555', subject: 'Tiếng Anh', homeroom: '10A2', status: 'pending', created_at: now },
     { id: 'g2', role: 'parent', full_name: 'Lưu Văn Hùng', phone: '0944555666', child_name: 'Lưu Khánh Linh', class_name: '10A1', grade: 10, cohort: '2025-2028', status: 'pending', created_at: now }];
-  const me = { admin: id(1), teacher: id(3), homeroom: id(2), student: id(4), parent: id(5) }[role];
-  const visibleStudents = role === 'student' ? students.filter(s => s.user_id === me) : role === 'parent' ? students.filter(s => s.id === id(101)) : students;
+  const me = { admin: id(1), teacher: id(3), homeroom: id(2), student: id(4), officer: id(4), parent: id(5) }[role];
+  // ?role=officer: học sinh Nguyễn Văn Nam là lớp trưởng 10A1
+  if (role === 'officer') students[0].officer = 'lop_truong';
+  const visibleStudents = role === 'officer' ? students.filter(s => s.class_id === students[0].class_id) : role === 'student' ? students.filter(s => s.user_id === me) : role === 'parent' ? students.filter(s => s.id === id(101)) : students;
   const kidIds = new Set(visibleStudents.map(s => s.id));
   const qs = (G.QBANK || []).map(q => ({ id: q.id, subject: 'toan', pool: q.id.match(/-(\d+)$/) && +q.id.match(/-(\d+)$/)[1] >= 21 ? 'exam' : 'practice', grade: q.grade, chapter: q.chapter, topic: q.topic, type: q.type, level: q.level, data: q, deleted: false }));
   const staff = role === 'admin' || role === 'teacher' || role === 'homeroom';
@@ -44,7 +46,7 @@
     profiles: staff ? profiles : profiles.filter(p => p.id === me), exams: staff ? exams : [],
     results: staff ? results : results.filter(r => kidIds.has(r.student_id)), assignments: staff ? assignments : assignments.filter(a => visibleStudents.some(s => s.class_id === a.class_id)),
     submissions: staff ? submissions : submissions.filter(s => kidIds.has(s.student_id)), parent_links: [{ parent_id: id(5), student_id: id(101) }], teacher_classes: tcs, registrations,
-    attendance: hr.att.filter(a => staff || kidIds.has(a.student_id)), conduct_events: hr.ev.filter(e => staff || kidIds.has(e.student_id)), homeroom_tasks: staff ? hr.tasks : []
+    attendance: hr.att.filter(a => staff || role === 'officer' || kidIds.has(a.student_id)), conduct_events: hr.ev.filter(e => staff || role === 'officer' || kidIds.has(e.student_id)), homeroom_tasks: staff ? hr.tasks : []
   };
   const ok = (data) => Promise.resolve({ data, error: null });
   function query(table) {

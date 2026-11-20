@@ -778,6 +778,54 @@ create policy conduct_staff on public.conduct_events for all to authenticated us
 drop policy if exists hrtasks_staff on public.homeroom_tasks;
 create policy hrtasks_staff on public.homeroom_tasks for all to authenticated using (public.homeroom_of(class_id)) with check (public.homeroom_of(class_id));
 
+-- ---------------------------------------------------------------------
+-- CÁN SỰ LỚP: lớp trưởng, bí thư, lớp phó, tổ trưởng… (GVCN chỉ định)
+-- Được: xem danh sách lớp mình, điểm danh, ghi vi phạm / khen thưởng (điểm thi đua) cho lớp mình.
+-- Không được: xem điểm kiểm tra, sửa danh sách lớp, ghi cho lớp khác, xóa ghi nhận của người khác.
+-- ---------------------------------------------------------------------
+alter table public.students add column if not exists officer text;
+alter table public.students add column if not exists team int;
+alter table public.students drop constraint if exists students_officer_chk;
+alter table public.students add constraint students_officer_chk check (officer is null or officer in
+  ('lop_truong', 'bi_thu', 'lp_hoc_tap', 'lp_lao_dong', 'lp_van_the', 'lp_ky_luat', 'to_truong', 'to_pho'));
+
+create or replace function public.officer_of(p_class uuid) returns boolean
+language sql stable security definer set search_path = public as
+$$ select exists (select 1 from public.students where user_id = auth.uid() and class_id = p_class and officer is not null) $$;
+revoke execute on function public.officer_of(uuid) from public, anon;
+grant execute on function public.officer_of(uuid) to authenticated;
+
+drop policy if exists students_officer on public.students;
+create policy students_officer on public.students for select to authenticated using (class_id is not null and public.officer_of(class_id));
+
+-- GIAO VIỆC: GVCN giao cho một học sinh, một tổ, ban cán sự hoặc cả lớp
+alter table public.homeroom_tasks add column if not exists assignee_student uuid references public.students(id) on delete set null;
+alter table public.homeroom_tasks add column if not exists assignee_label text;     -- 'Cả lớp' | 'Ban cán sự lớp' | 'Tổ 1'…
+
+create or replace function public.task_visible_to_me(p_class uuid, p_student uuid, p_label text) returns boolean
+language sql stable security definer set search_path = public as
+$$ select exists (select 1 from public.students s where s.user_id = auth.uid() and s.class_id = p_class and (
+     s.id = p_student or p_label = 'Cả lớp' or (p_label = 'Ban cán sự lớp' and s.officer is not null) or (s.team is not null and p_label = 'Tổ ' || s.team))) $$;
+revoke execute on function public.task_visible_to_me(uuid, uuid, text) from public, anon;
+grant execute on function public.task_visible_to_me(uuid, uuid, text) to authenticated;
+
+drop policy if exists hrtasks_assignee_read on public.homeroom_tasks;
+drop policy if exists hrtasks_assignee_done on public.homeroom_tasks;
+create policy hrtasks_assignee_read on public.homeroom_tasks for select to authenticated using (public.task_visible_to_me(class_id, assignee_student, assignee_label));
+create policy hrtasks_assignee_done on public.homeroom_tasks for update to authenticated
+  using (assignee_student is not null and assignee_student = public.my_student_id()) with check (assignee_student = public.my_student_id());
+
+drop policy if exists attendance_officer on public.attendance;
+create policy attendance_officer on public.attendance for all to authenticated using (public.officer_of(class_id)) with check (public.officer_of(class_id));
+
+drop policy if exists conduct_officer_read on public.conduct_events;
+drop policy if exists conduct_officer_add on public.conduct_events;
+drop policy if exists conduct_officer_del on public.conduct_events;
+create policy conduct_officer_read on public.conduct_events for select to authenticated using (public.officer_of(class_id));
+create policy conduct_officer_add on public.conduct_events for insert to authenticated
+  with check (public.officer_of(class_id) and recorded_by = auth.uid() and points between -20 and 10);
+create policy conduct_officer_del on public.conduct_events for delete to authenticated using (public.officer_of(class_id) and recorded_by = auth.uid());
+
 -- Đặt lại mật khẩu: admin cho mọi tài khoản; giáo viên chỉ cho HS & PH của lớp mình
 create or replace function public.reset_password(p_user uuid, p_password text) returns boolean
 language plpgsql security definer set search_path = public, auth, extensions as $$

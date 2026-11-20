@@ -174,8 +174,33 @@
     if (!best.out.length) best = parse([...doc.getElementsByTagNameNS(W, 'p')].map(txt).join('\n'));
     return best;
   }
-  async function readFile(file) {
+  // ---------- ảnh: nhận dạng chữ ngay trên trình duyệt (Tesseract, tiếng Việt), ảnh không gửi đi đâu ----------
+  let tessP = null;
+  const loadTess = () => tessP || (tessP = new Promise((ok, no) => {
+    if (G.Tesseract) return ok(G.Tesseract);
+    const s = document.createElement('script'); s.src = 'https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js';
+    s.onload = () => ok(G.Tesseract); s.onerror = () => { tessP = null; no(new Error('Không tải được bộ nhận dạng chữ (cần mạng Internet).')); };
+    document.head.appendChild(s);
+  }));
+  async function prepImage(file) {   // phóng to ảnh nhỏ, chuyển xám → nhận dạng chính xác hơn
+    const bmp = await createImageBitmap(file); const k = Math.min(3, Math.max(1, 2000 / Math.max(bmp.width, bmp.height)));
+    const c = document.createElement('canvas'); c.width = Math.round(bmp.width * k); c.height = Math.round(bmp.height * k);
+    const x = c.getContext('2d'); x.filter = 'grayscale(1) contrast(1.4)'; x.drawImage(bmp, 0, 0, c.width, c.height); return c;
+  }
+  async function ocrImage(file, onProgress) {
+    const T = await loadTess();
+    const worker = await T.createWorker('vie', 1, { logger: m => { if (onProgress && m.status) onProgress(m.status, m.progress || 0); } });
+    try {
+      await worker.setParameters({ preserve_interword_spaces: '1' });
+      const { data } = await worker.recognize(await prepImage(file));
+      return data.text.replace(/[|]/g, ' ');
+    } finally { await worker.terminate(); }
+  }
+  const isImage = (file) => /^image\//.test(file.type) || /\.(png|jpe?g|webp|bmp|gif|heic)$/i.test(file.name);
+
+  async function readFile(file, onProgress) {
     const name = file.name.toLowerCase();
+    if (isImage(file)) { const text = await ocrImage(file, onProgress); return Object.assign(parse(text), { text, fromImage: true }); }
     if (/\.xlsx$|\.xlsm$/.test(name)) return readXlsx(await file.arrayBuffer());
     if (/\.docx$/.test(name)) return readDocx(await file.arrayBuffer());
     if (/\.xls$|\.doc$/.test(name)) throw new Error('Tệp định dạng cũ (.xls/.doc). Hãy mở và "Lưu thành" .xlsx hoặc .docx rồi chọn lại, hoặc sao chép bảng và dán vào ô văn bản.');
@@ -183,5 +208,5 @@
     return parse(text);
   }
 
-  G.RosterImport = { parse, readFile, parseDate, normName, looksName };
+  G.RosterImport = { parse, readFile, isImage, parseDate, normName, looksName };
 })(window);

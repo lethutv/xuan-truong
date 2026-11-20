@@ -18,7 +18,15 @@
   const avg = (a) => { const x = a.filter(v => v != null && !isNaN(v)); return x.length ? x.reduce((t, v) => t + +v, 0) / x.length : null; };
 
   const STATUS = { present: ['Có mặt', '✓', 'st-ok'], late: ['Đi muộn', 'M', 'st-late'], excused: ['Vắng có phép', 'P', 'st-exc'], absent: ['Vắng không phép', 'K', 'st-abs'] };
-  const VIOLATIONS = [['Đi học muộn', -2], ['Vắng không phép', -5], ['Không mặc đồng phục', -2], ['Không học bài / không làm bài tập', -3], ['Mất trật tự trong giờ học', -2], ['Sử dụng điện thoại sai quy định', -5], ['Vô lễ với thầy cô, người lớn', -10], ['Gây gổ, đánh nhau', -15], ['Vi phạm khác', -2]];
+  const VIOLATIONS = [['Đi học muộn', -2], ['Vắng không phép', -5], ['Không mặc đồng phục', -2], ['Không học bài / không làm bài tập', -3], ['Mất trật tự trong giờ học', -2], ['Sử dụng điện thoại sai quy định', -5], ['Vô lễ với thầy cô, người lớn', -10], ['Gây gổ, đánh nhau', -15],
+    ['Giao thông: không đội mũ bảo hiểm', -5], ['Giao thông: đi xe máy khi chưa đủ tuổi / chưa có bằng', -10], ['Giao thông: đi xe đạp điện, xe máy điện quá tốc độ, dàn hàng ngang', -5], ['Giao thông: chở quá số người quy định', -5], ['Giao thông: vi phạm khác (vượt đèn đỏ, đi ngược chiều…)', -5],
+    ['Vi phạm khác', -2]];
+  const OFFICERS = { lop_truong: 'Lớp trưởng', bi_thu: 'Bí thư', lp_hoc_tap: 'Lớp phó học tập', lp_lao_dong: 'Lớp phó lao động', lp_van_the: 'Lớp phó văn thể', lp_ky_luat: 'Lớp phó kỷ luật', to_truong: 'Tổ trưởng', to_pho: 'Tổ phó' };
+  const officerLabel = (s) => s && s.officer ? OFFICERS[s.officer] + (/^to_/.test(s.officer) && s.team ? ' tổ ' + s.team : '') : '';
+  // học sinh là cán sự lớp → dùng một phần màn hình chủ nhiệm (điểm danh, vi phạm, thi đua) cho lớp mình
+  const meStudent = () => { const { S } = A(); return S.profile.role === 'student' ? S.students.find(s => s.user_id === S.profile.id) : null; };
+  const isOfficer = () => { const m = meStudent(); return !!(m && m.officer && m.class_id); };
+  const OFFICER_TABS = ['attendance', 'conduct', 'rewards', 'tasks'];
   const REWARDS = [['Phát biểu xây dựng bài', 2], ['Đạt điểm 9–10', 3], ['Làm việc tốt', 5], ['Tham gia phong trào của lớp, trường', 5], ['Đạt giải thi học sinh giỏi / cuộc thi', 10], ['Khen thưởng khác', 2]];
   const TASK_KIND = { task: ['Việc cần làm', '📌'], meeting: ['Họp', '👥'], event: ['Sự kiện', '🎉'] };
   const rank = (score) => score >= 90 ? ['Tốt', 'rk-a'] : score >= 70 ? ['Khá', 'rk-b'] : score >= 50 ? ['Đạt', 'rk-c'] : ['Chưa đạt', 'rk-d'];
@@ -36,7 +44,8 @@
     return (cache[cid] = { att, ev, tasks });
   }
   const studentsOf = (cid) => { const { S, lastName } = A(); return S.students.filter(s => s.class_id === cid).sort((a, b) => lastName(a.full_name).localeCompare(lastName(b.full_name), 'vi')); };
-  const myHomeroomClasses = () => { const { S } = A(); if (S.profile.role === 'admin') return S.classes.slice().sort((a, b) => a.name.localeCompare(b.name, 'vi', { numeric: true }));
+  const myHomeroomClasses = () => { const { S } = A(); if (isOfficer()) return [A().classOf(meStudent().class_id)].filter(Boolean);
+    if (S.profile.role === 'admin') return S.classes.slice().sort((a, b) => a.name.localeCompare(b.name, 'vi', { numeric: true }));
     const ids = new Set((S.teacherClasses || []).filter(t => t.teacher_id === S.profile.id && t.homeroom).map(t => t.class_id)); return S.classes.filter(c => ids.has(c.id)); };
   const pointsOf = (ev, sid, from) => ev.filter(e => e.student_id === sid && (!from || e.date >= from)).reduce((t, e) => t + (+e.points || 0), 0);
   const attCount = (att, sid, from, st) => att.filter(a => a.student_id === sid && (!from || a.date >= from) && a.status === st).length;
@@ -49,10 +58,13 @@
     const list = myHomeroomClasses();
     if (!list.length) { root.innerHTML = '<p class="muted">Bạn chưa được phân công chủ nhiệm lớp nào. Liên hệ quản trị viên (mục Phân công giảng dạy).</p>'; return; }
     if (!list.some(c => c.id === hr.cid)) hr.cid = list[0].id;
+    const off = isOfficer(); const tabs = off ? TABS.filter(t => OFFICER_TABS.includes(t[0])) : TABS;
+    if (!tabs.some(t => t[0] === hr.tab)) hr.tab = tabs[0][0];
     const c = A().classOf(hr.cid); const st = studentsOf(c.id);
-    root.innerHTML = `<div class="row-actions page-head"><h2>⭐ Lớp ${esc(c.name)}</h2><span class="tag">sĩ số ${st.length}</span><span class="tag muted">${esc(c.school_year || '')}</span><span class="spacer"></span>
+    root.innerHTML = `<div class="row-actions page-head"><h2>${off ? '🎖️' : '⭐'} Lớp ${esc(c.name)}</h2><span class="tag">sĩ số ${st.length}</span>${off ? `<span class="tag">${esc(officerLabel(meStudent()))}</span>` : `<span class="tag muted">${esc(c.school_year || '')}</span>`}<span class="spacer"></span>
       ${list.length > 1 ? `<label class="inline-l">Lớp <select id="hrCls">${list.map(x => `<option value="${x.id}" ${x.id === hr.cid ? 'selected' : ''}>${esc(x.name)}</option>`).join('')}</select></label>` : ''}</div>
-      <div class="hr-nav">${TABS.map(([k, l]) => `<button data-t="${k}" class="${hr.tab === k ? 'active' : ''}">${l}</button>`).join('')}</div><div id="hrBody"><p class="muted">Đang tải…</p></div>`;
+      ${off ? '<p class="muted small" style="margin:-4px 0 8px">Cán sự lớp: điểm danh, ghi vi phạm và khen thưởng cho lớp mình. Chỉ xóa được ghi nhận do chính mình nhập; giáo viên chủ nhiệm xem và duyệt toàn bộ.</p>' : ''}
+      <div class="hr-nav">${tabs.map(([k, l]) => `<button data-t="${k}" class="${hr.tab === k ? 'active' : ''}">${l}</button>`).join('')}</div><div id="hrBody"><p class="muted">Đang tải…</p></div>`;
     $$('.hr-nav button', root).forEach(b => b.onclick = () => { hr.tab = b.dataset.t; V.homeroom.render(root); });
     if ($('#hrCls', root)) $('#hrCls', root).onchange = (e) => { hr.cid = e.target.value; V.homeroom.render(root); };
     let data; try { data = await load(c.id); } catch (e) { $('#hrBody', root).innerHTML = `<p class="warn">Không tải được dữ liệu lớp: ${esc(e.message)}. Quản trị viên cần chạy lại schema.sql mới nhất.</p>`; return; }
@@ -87,12 +99,20 @@
 
   // ---------- Học sinh & phụ huynh ----------
   function students(body, c, st, d) {
-    const { esc, S, parentsOf } = A(); const m = monthStart();
-    body.innerHTML = `<div class="table-wrap"><table class="gr-table"><thead><tr><th>#</th><th>Họ tên</th><th>SBD</th><th>Tài khoản HS</th><th>Phụ huynh (liên hệ)</th><th>Vắng tháng</th><th>Điểm RL</th><th>TB kiểm tra</th></tr></thead><tbody>
+    const { esc, S, parentsOf, sb, toast } = A(); const m = monthStart();
+    const offSel = (s) => `<select class="off-sel" data-off="${s.id}"><option value="">—</option>${Object.entries(OFFICERS).map(([k, v]) => `<option value="${k}" ${s.officer === k ? 'selected' : ''}>${v}</option>`).join('')}</select>${/^to_/.test(s.officer || '') ? ` tổ <input class="team-in" data-team="${s.id}" type="number" min="1" max="9" value="${s.team || ''}">` : ''}`;
+    setTimeout(() => {
+      const save = async (sid, patch) => { const { error } = await sb.from('students').update(patch).eq('id', sid); if (error) return toast('Lỗi: ' + error.message, 5000);
+        const s = S.students.find(x => x.id === sid); Object.assign(s, patch); toast(patch.officer === undefined ? 'Đã lưu tổ.' : patch.officer ? `${s.full_name}: ${officerLabel(s)}. Em đăng nhập sẽ thấy mục Cán sự lớp.` : `Đã bỏ chức vụ của ${s.full_name}.`, 4000); students(body, c, st, d); };
+      $$('[data-off]', body).forEach(el => el.onchange = () => save(el.dataset.off, { officer: el.value || null, team: /^to_/.test(el.value) ? (S.students.find(x => x.id === el.dataset.off).team || 1) : null }));
+      $$('[data-team]', body).forEach(el => el.onchange = () => save(el.dataset.team, { team: +el.value || null }));
+    });
+    body.innerHTML = `<p class="muted small">Chọn <b>chức vụ</b> để giao quyền cán sự lớp (lớp trưởng, bí thư, lớp phó, tổ trưởng…): các em được điểm danh, ghi vi phạm và khen thưởng cho lớp. Học sinh cần có tài khoản.</p>
+      <div class="table-wrap"><table class="gr-table"><thead><tr><th>#</th><th>Họ tên</th><th>Chức vụ</th><th>SBD</th><th>Tài khoản HS</th><th>Phụ huynh (liên hệ)</th><th>Vắng tháng</th><th>Điểm RL</th><th>TB kiểm tra</th></tr></thead><tbody>
       ${st.map((s, i) => { const a = s.user_id ? (S.profiles || []).find(p => p.id === s.user_id) : null; const ps = parentsOf(s.id); const sc = 100 + pointsOf(d.ev, s.id, yearStart()); const rk = rank(sc);
-        return `<tr><td>${i + 1}</td><td>${esc(s.full_name)}</td><td>${esc(s.sbd || '')}</td><td>${a ? esc(a.username) : '<span class="warn small">chưa có</span>'}</td>
+        return `<tr><td>${i + 1}</td><td>${esc(s.full_name)}</td><td class="small">${offSel(s)}</td><td>${esc(s.sbd || '')}</td><td>${a ? esc(a.username) : '<span class="warn small">chưa có</span>'}</td>
           <td class="small">${ps.map(p => `${esc(p.full_name)}${p.phone ? ` · <a href="tel:${esc(p.phone)}">${esc(p.phone)}</a>` : ''}`).join('<br>') || '<span class="muted">—</span>'}</td>
-          <td>${attCount(d.att, s.id, m, 'absent') + attCount(d.att, s.id, m, 'excused') || ''}</td><td><span class="rk ${rk[1]}">${sc}</span></td><td>${f2(avg(S.results.filter(r => r.student_id === s.id).map(r => r.total))) || '—'}</td></tr>`; }).join('') || '<tr><td colspan="8" class="muted">Lớp chưa có học sinh.</td></tr>'}</tbody></table></div>`;
+          <td>${attCount(d.att, s.id, m, 'absent') + attCount(d.att, s.id, m, 'excused') || ''}</td><td><span class="rk ${rk[1]}">${sc}</span></td><td>${f2(avg(S.results.filter(r => r.student_id === s.id).map(r => r.total))) || '—'}</td></tr>`; }).join('') || '<tr><td colspan="9" class="muted">Lớp chưa có học sinh.</td></tr>'}</tbody></table></div>`;
   }
 
   // ---------- 2. Điểm danh – Chuyên cần ----------
@@ -160,7 +180,7 @@
           ${board.map((x, i) => { const rk = rank(x.sc); return `<tr><td>${['🥇', '🥈', '🥉'][i] || i + 1}</td><td>${esc(x.s.full_name)}</td><td class="ok">${x.plus ? '+' + x.plus : ''}</td><td class="warn">${x.minus || ''}</td><td><b>${x.sc}</b></td><td><span class="rk ${rk[1]}">${rk[0]}</span></td></tr>`; }).join('')}</tbody></table></div>`
           : `<h3>Tổng hợp theo học sinh</h3><div class="table-wrap"><table class="gr-table"><thead><tr><th>Họ tên</th><th>Số lần</th><th>Điểm trừ</th></tr></thead><tbody>${per.map(x => `<tr><td>${esc(x.s.full_name)}</td><td>${x.n}</td><td class="warn"><b>${x.p}</b></td></tr>`).join('') || '<tr><td colspan="3" class="muted">Không có vi phạm trong thời gian này. 👍</td></tr>'}</tbody></table></div>`}
         <h3>Nhật ký</h3><div class="table-wrap"><table class="gr-table"><thead><tr><th>Ngày</th><th>Học sinh</th><th>${isV ? 'Vi phạm' : 'Khen thưởng'}</th><th>Điểm</th><th>Ghi chú</th><th></th></tr></thead><tbody>
-        ${evs.map(e => `<tr><td>${vnDate(e.date)}</td><td>${esc(name(e.student_id))}</td><td>${esc(e.category)}</td><td class="${e.points < 0 ? 'warn' : 'ok'}"><b>${e.points > 0 ? '+' : ''}${e.points}</b></td><td class="small">${esc(e.note || '')}</td><td><button class="btn sm danger" data-del="${e.id}">✕</button></td></tr>`).join('') || '<tr><td colspan="6" class="muted">Chưa có ghi nhận.</td></tr>'}</tbody></table></div>`;
+        ${evs.map(e => `<tr><td>${vnDate(e.date)}</td><td>${esc(name(e.student_id))}</td><td>${esc(e.category)}</td><td class="${e.points < 0 ? 'warn' : 'ok'}"><b>${e.points > 0 ? '+' : ''}${e.points}</b></td><td class="small">${esc(e.note || '')}</td><td>${!isOfficer() || e.recorded_by === A().S.profile.id ? `<button class="btn sm danger" data-del="${e.id}">✕</button>` : ''}</td></tr>`).join('') || '<tr><td colspan="6" class="muted">Chưa có ghi nhận.</td></tr>'}</tbody></table></div>`;
       const f = $('#evForm', body);
       f.cat.onchange = () => { f.pts.value = f.cat.selectedOptions[0].dataset.p; };
       f.onsubmit = async (e) => {
@@ -198,35 +218,50 @@
   // ---------- 6. Công việc & lịch ----------
   function tasks(body, c, st, d, R) {
     const { esc, sb, toast, fmtDate } = A();
-    const open = d.tasks.filter(t => !t.done).sort((a, b) => String(a.due_at || '9').localeCompare(String(b.due_at || '9')));
-    const done = d.tasks.filter(t => t.done).sort((a, b) => String(b.due_at || '').localeCompare(String(a.due_at || ''))).slice(0, 15);
+    const off = isOfficer(); const me = meStudent();
+    // cán sự chỉ thấy việc giao cho mình / tổ mình / ban cán sự / cả lớp
+    const mine = (t) => !off || t.assignee_student === me.id || t.assignee_label === 'Cả lớp' || t.assignee_label === 'Ban cán sự lớp' || (me.team && t.assignee_label === 'Tổ ' + me.team);
+    const list = d.tasks.filter(mine);
+    const open = list.filter(t => !t.done).sort((a, b) => String(a.due_at || '9').localeCompare(String(b.due_at || '9')));
+    const done = list.filter(t => t.done).sort((a, b) => String(b.due_at || '').localeCompare(String(a.due_at || ''))).slice(0, 15);
     const now = new Date();
-    const item = (t) => { const late = !t.done && t.due_at && new Date(t.due_at) < now;
-      return `<div class="task ${t.done ? 'done' : ''} ${late ? 'late' : ''}"><input type="checkbox" data-done="${t.id}" ${t.done ? 'checked' : ''}><span class="task-ico">${TASK_KIND[t.kind][1]}</span>
-        <div class="task-main"><b>${esc(t.title)}</b><small>${TASK_KIND[t.kind][0]}${t.due_at ? ' · ' + fmtDate(t.due_at) : ''}${late ? ' · <span class="warn">quá hạn</span>' : ''}${t.note ? ' · ' + esc(t.note) : ''}</small></div>
-        <button class="btn sm danger" data-rm="${t.id}">✕</button></div>`; };
+    const who = (t) => { if (t.assignee_student) { const s = st.find(x => x.id === t.assignee_student); return s ? s.full_name + (s.officer ? ` (${officerLabel(s)})` : '') : 'học sinh'; } return t.assignee_label || ''; };
+    const canTick = (t) => !off || t.assignee_student === me.id;
+    const item = (t) => { const late = !t.done && t.due_at && new Date(t.due_at) < now; const w = who(t);
+      return `<div class="task ${t.done ? 'done' : ''} ${late ? 'late' : ''}"><input type="checkbox" data-done="${t.id}" ${t.done ? 'checked' : ''} ${canTick(t) ? '' : 'disabled title="Chỉ người được giao riêng hoặc GVCN đánh dấu xong"'}><span class="task-ico">${TASK_KIND[t.kind][1]}</span>
+        <div class="task-main"><b>${esc(t.title)}</b><small>${TASK_KIND[t.kind][0]}${t.due_at ? ' · ' + fmtDate(t.due_at) : ''}${late ? ' · <span class="warn">quá hạn</span>' : ''}${w ? ` · 👤 <b>${esc(w)}</b>` : ''}${t.note ? ' · ' + esc(t.note) : ''}</small></div>
+        ${off ? '' : `<button class="btn sm danger" data-rm="${t.id}">✕</button>`}</div>`; };
     // lịch tháng
-    const y = now.getFullYear(), mo = now.getMonth(); const first = new Date(y, mo, 1), days = new Date(y, mo + 1, 0).getDate(); const off = (first.getDay() + 6) % 7;
-    const byDay = {}; d.tasks.forEach(t => { if (t.due_at) { const k = iso(new Date(t.due_at)); (byDay[k] = byDay[k] || []).push(t); } });
-    let cal = '<div class="cal">' + ['T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'CN'].map(x => `<div class="cal-h">${x}</div>`).join('') + '<div class="cal-d empty"></div>'.repeat(off);
+    const y = now.getFullYear(), mo = now.getMonth(); const first = new Date(y, mo, 1), days = new Date(y, mo + 1, 0).getDate(); const offs = (first.getDay() + 6) % 7;
+    const byDay = {}; list.forEach(t => { if (t.due_at) { const k = iso(new Date(t.due_at)); (byDay[k] = byDay[k] || []).push(t); } });
+    let cal = '<div class="cal">' + ['T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'CN'].map(x => `<div class="cal-h">${x}</div>`).join('') + '<div class="cal-d empty"></div>'.repeat(offs);
     for (let i = 1; i <= days; i++) { const k = iso(new Date(y, mo, i)); const ts = byDay[k] || [];
       cal += `<div class="cal-d ${k === today() ? 'today' : ''}"><span>${i}</span>${ts.slice(0, 3).map(t => `<i class="${t.done ? 'done' : ''}" title="${esc(t.title)}">${TASK_KIND[t.kind][1]} ${esc(t.title.slice(0, 14))}</i>`).join('')}</div>`; }
     cal += '</div>';
-    body.innerHTML = `<form class="task-form" id="tkForm"><input name="title" required placeholder="VD: Họp phụ huynh giữa kỳ, thu hồ sơ bảo hiểm, sinh hoạt lớp…" maxlength="150">
-        <select name="kind">${Object.entries(TASK_KIND).map(([k, v]) => `<option value="${k}">${v[1]} ${v[0]}</option>`).join('')}</select><input name="due" type="datetime-local"><input name="note" placeholder="ghi chú"><button class="btn primary">＋ Thêm</button></form>
+    const teams = [...new Set(st.map(s => s.team).filter(Boolean))].sort(); const teamOpts = (teams.length ? teams : [1, 2, 3, 4]).map(n => `<option value="g:Tổ ${n}">Tổ ${n}</option>`).join('');
+    const officers = st.filter(s => s.officer), others = st.filter(s => !s.officer);
+    const assignSel = `<select name="who" title="Giao cho ai"><option value="">👤 Giao cho: GVCN (tự làm)</option><option value="g:Cả lớp">Cả lớp</option><option value="g:Ban cán sự lớp">Ban cán sự lớp</option>${teamOpts}
+      ${officers.length ? `<optgroup label="Cán sự lớp">${officers.map(s => `<option value="s:${s.id}">${esc(s.full_name)} – ${esc(officerLabel(s))}</option>`).join('')}</optgroup>` : ''}
+      ${others.length ? `<optgroup label="Học sinh">${others.map(s => `<option value="s:${s.id}">${esc(s.full_name)}</option>`).join('')}</optgroup>` : ''}</select>`;
+    body.innerHTML = `${off ? '<p class="muted small">Việc giáo viên chủ nhiệm giao cho em, tổ của em, ban cán sự hoặc cả lớp. Đánh dấu ✔ khi em làm xong việc được giao riêng.</p>' : `<form class="task-form" id="tkForm"><input name="title" required placeholder="VD: Họp phụ huynh giữa kỳ, thu hồ sơ bảo hiểm, trực nhật…" maxlength="150">
+        <select name="kind">${Object.entries(TASK_KIND).map(([k, v]) => `<option value="${k}">${v[1]} ${v[0]}</option>`).join('')}</select>${assignSel}<input name="due" type="datetime-local"><input name="note" placeholder="ghi chú"><button class="btn primary">＋ Thêm</button></form>`}
       <div class="home-grid" style="margin-top:10px"><div class="panel"><h2>Chưa hoàn thành (${open.length})</h2>${open.map(item).join('') || '<p class="muted">Không còn việc nào. 🎉</p>'}
         ${done.length ? `<h2 style="margin-top:14px">Đã xong gần đây</h2>${done.map(item).join('')}` : ''}</div>
         <div class="panel"><h2>Lịch tháng ${mo + 1}/${y}</h2>${cal}</div></div>`;
-    $('#tkForm', body).onsubmit = async (e) => {
-      e.preventDefault(); const f = e.target;
-      const { error } = await sb.from('homeroom_tasks').insert({ class_id: c.id, title: f.title.value.trim(), kind: f.kind.value, due_at: f.due.value ? new Date(f.due.value).toISOString() : null, note: f.note.value.trim() || null });
-      if (error) return toast(error.message, 5000); toast('Đã thêm.'); R(true);
+    if ($('#tkForm', body)) $('#tkForm', body).onsubmit = async (e) => {
+      e.preventDefault(); const f = e.target; const w = f.who.value;
+      const { error } = await sb.from('homeroom_tasks').insert({ class_id: c.id, title: f.title.value.trim(), kind: f.kind.value, due_at: f.due.value ? new Date(f.due.value).toISOString() : null, note: f.note.value.trim() || null,
+        assignee_student: w.startsWith('s:') ? w.slice(2) : null, assignee_label: w.startsWith('g:') ? w.slice(2) : null });
+      if (error) return toast(error.message, 5000); toast('Đã thêm' + (w ? ' và giao việc.' : '.')); R(true);
     };
     $$('[data-done]', body).forEach(b => b.onchange = async () => { const { error } = await sb.from('homeroom_tasks').update({ done: b.checked }).eq('id', b.dataset.done); if (error) return toast(error.message, 5000); R(true); });
     $$('[data-rm]', body).forEach(b => b.onclick = async () => { if (!confirm('Xóa việc này?')) return; await sb.from('homeroom_tasks').delete().eq('id', b.dataset.rm); R(true); });
   }
 
   // ======================= HS / PH: Chuyên cần & nề nếp =======================
+  // cán sự lớp (học sinh) dùng chung màn hình chủ nhiệm, chỉ các thẻ được phép
+  V.officer = { render: (root) => V.homeroom.render(root) };
+
   V.conduct = { render: async (root) => {
     const { S, esc, studentRow, classOf, fetchAll } = A();
     const kid = S.profile.role === 'parent' ? (studentRow(A().hw.child) || S.students[0]) : S.students[0];
@@ -246,5 +281,15 @@
       <div class="home-grid"><div class="panel"><h2>Các buổi vắng / muộn</h2>${miss.slice(0, 20).map(a => `<div class="li"><span class="st-pill ${STATUS[a.status][2]}">${STATUS[a.status][1]}</span> ${vnDate(a.date)} (${a.session === 'sang' ? 'sáng' : 'chiều'}) – ${STATUS[a.status][0]}${a.note ? ` <span class="muted small">${esc(a.note)}</span>` : ''}</div>`).join('') || '<p class="muted">Đi học đầy đủ. 👍</p>'}</div>
         <div class="panel"><h2>Khen thưởng & vi phạm</h2>${ev.slice().sort((a, b) => b.date.localeCompare(a.date)).slice(0, 20).map(e => `<div class="li">${e.kind === 'reward' ? '🏆' : '⚠️'} ${vnDate(e.date)} – ${esc(e.category)} <b class="${e.points < 0 ? 'warn' : 'ok'}">${e.points > 0 ? '+' : ''}${e.points}</b>${e.note ? ` <span class="muted small">${esc(e.note)}</span>` : ''}</div>`).join('') || '<p class="muted">Chưa có ghi nhận.</p>'}</div></div>
       <p class="muted small">Điểm rèn luyện = 100 + điểm khen thưởng − điểm vi phạm trong năm học. Xếp loại là đề xuất, giáo viên chủ nhiệm sẽ đánh giá chính thức.</p>`;
+    // việc GVCN giao cho em / tổ / cả lớp (học sinh)
+    if (S.profile.role === 'student') {
+      const ts = await fetchAll('homeroom_tasks', '*').catch(() => []);
+      const open = ts.filter(t => !t.done).sort((a, b) => String(a.due_at || '9').localeCompare(String(b.due_at || '9')));
+      const box = document.createElement('div'); box.className = 'panel'; box.style.marginTop = '12px';
+      box.innerHTML = `<h2>📌 Việc được giao (${open.length})</h2>${ts.slice(0, 20).map(t => `<div class="task ${t.done ? 'done' : ''}"><input type="checkbox" data-mydone="${t.id}" ${t.done ? 'checked' : ''} ${t.assignee_student === kid.id ? '' : 'disabled'}><span class="task-ico">${TASK_KIND[t.kind][1]}</span>
+        <div class="task-main"><b>${esc(t.title)}</b><small>${t.assignee_student ? 'Giao riêng cho em' : esc(t.assignee_label || '')}${t.due_at ? ' · hạn ' + A().fmtDate(t.due_at) : ''}${t.note ? ' · ' + esc(t.note) : ''}</small></div></div>`).join('') || '<p class="muted">Chưa có việc nào được giao.</p>'}`;
+      root.appendChild(box);
+      $$('[data-mydone]', box).forEach(b => b.onchange = async () => { const { error } = await A().sb.from('homeroom_tasks').update({ done: b.checked }).eq('id', b.dataset.mydone); if (error) { A().toast(error.message, 5000); b.checked = !b.checked; } else V.conduct.render(root); });
+    }
   } };
 })(window);

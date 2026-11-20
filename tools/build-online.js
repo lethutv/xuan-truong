@@ -14,7 +14,7 @@ const copy = (rel) => { const s = path.join(root, rel), d = path.join(dist, rel)
 fs.mkdirSync(path.join(dist, 'js'), { recursive: true });
 for (const f of fs.readdirSync(path.join(root, 'js'))) if (!/^bank-/.test(f) && f !== 'config.js') fs.copyFileSync(path.join(root, 'js', f), path.join(dist, 'js', f));
 let html = fs.readFileSync(path.join(root, 'index.html'), 'utf8').replace(/<script src="js\/bank-[^"]+"><\/script>\n?/g, '');
-const ver = Date.now().toString(36); html = html.replace(/\?v=\w+"/g, `?v=${ver}"`);
+const ver = Date.now().toString(36); html = html.replace(/\?v=\w+"/g, `?v=${ver}"`).replace(/<head>/i, `<head>\n<meta name="app-build" content="${ver}">`);
 fs.writeFileSync(path.join(dist, 'index.html'), html);
 fs.writeFileSync(path.join(dist, 'js', 'config.js'), `window.APP_CONFIG = ${JSON.stringify({ SUPABASE_URL: url, SUPABASE_ANON_KEY: key, LOGIN_DOMAIN: 'taikhoan.detoan.app', SCHOOL_NAME: school || 'Trường THPT Tiến Thịnh', BRAND: 'Tiến Thịnh EDU' }, null, 2)};\n`);
 fs.writeFileSync(path.join(dist, '.nojekyll'), '');

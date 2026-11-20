@@ -146,6 +146,7 @@ Khi `js/config.js` để trống, app chạy **ngoại tuyến**: một giáo vi
 | **Giáo viên bộ môn** | Tổng quan · Lớp & học sinh · Đề kiểm tra (theo môn của mình) · Chấm & điểm · Bài tập về nhà |
 | **GV chủ nhiệm** | Nhóm **Lớp chủ nhiệm** gồm 7 thẻ: Tổng quan (sĩ số, vắng/muộn hôm nay, HS cần chú ý, việc sắp tới) · Học sinh & PH · Điểm danh – Chuyên cần (sáng/chiều, 4 trạng thái, thống kê tháng, xuất Excel) · Nề nếp – Vi phạm · Thi đua – Khen thưởng (bảng xếp hạng, điểm rèn luyện = 100 + khen − vi phạm, xếp loại đề xuất Tốt/Khá/Đạt/Chưa đạt) · Kết quả học tập (điểm mọi môn, cảnh báo HS yếu, ai chưa nộp bài) · Công việc & lịch (việc cần làm, họp, sự kiện, lịch tháng) |
 | **Học sinh** | Tổng quan (điểm TB, bài tập cần làm) · Bài tập về nhà · Luyện tập · Điểm của tôi · Giáo viên của lớp |
+| **Cán sự lớp** (HS) | GVCN chọn chức vụ ở thẻ Học sinh & PH (lớp trưởng, bí thư, lớp phó, tổ trưởng/tổ phó + số tổ). Cán sự có mục *Điểm danh & thi đua lớp*: điểm danh, ghi vi phạm (kể cả vi phạm giao thông) / khen thưởng (−20…+10 điểm/lần), xem việc được giao. Chỉ xóa được ghi nhận do mình nhập. |
 | **Phụ huynh** | Chọn con (nếu nhiều con) · Tổng quan · Điểm kiểm tra · Bài tập về nhà · Chuyên cần & nề nếp (chỉ xem) · Liên hệ giáo viên chủ nhiệm và giáo viên bộ môn |
 
 **Nhiều môn học:**
@@ -255,6 +256,10 @@ App được đăng lên **GitHub Pages** từ nhánh `gh-pages` của repo, t�
    - Chưa có chức năng phân công giáo viên theo lớp: mọi giáo viên thấy mọi lớp.
    - Mới có môn Toán. Cơ sở dữ liệu đã có sẵn bảng *subjects* để thêm môn khác.
 7. **Đặc tả ma trận chính thức:** nếu Sở/Trường có bảng đặc tả riêng (số câu theo từng bài, từng mức), nên tạo thêm mẫu trong `PRESETS` ở `js/core.js`.
+
+**Bảo mật theo lớp:** giáo viên chỉ thấy học sinh, phụ huynh, điểm của lớp được phân công; chỉ GVCN (và admin) sửa danh sách lớp, tạo tài khoản HS/PH, điểm danh, nề nếp. Áp dụng bằng RLS trên máy chủ.
+
+**Nhập danh sách lớp:** Excel/Word/CSV/văn bản hoặc ảnh chụp (nhận dạng chữ ngay trên trình duyệt). Tự nhận cột, bỏ cột thừa (tài khoản, mật khẩu, SĐT…), chỉ lưu họ tên, SBD, ngày sinh; xem trước rồi mới lưu.
 
 ## Cấu trúc mã nguồn
 

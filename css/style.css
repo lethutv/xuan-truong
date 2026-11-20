@@ -359,7 +359,8 @@ div.kpi { cursor: default; }
 .rk { display: inline-block; padding: 1px 8px; border-radius: 10px; font-weight: 700; font-size: 12.5px; }
 .rk-a { background: #e3f4ea; color: #18794e; } .rk-b { background: #e8f0fc; color: #1f5fbf; } .rk-c { background: #fff4e5; color: #b4461a; } .rk-d { background: #fde8e6; color: #c0392b; }
 .gb tr.flag td { background: #fff8f6; }
-.task-form { display: grid; grid-template-columns: 2fr auto auto 1fr auto; gap: 8px; align-items: center; }
+.task-form { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.task-form > * { flex: 1 1 150px; min-width: 0; } .task-form input[name="title"] { flex: 3 1 280px; } .task-form button { flex: 0 0 auto; }
 .task { display: flex; align-items: center; gap: 8px; padding: 7px 0; border-bottom: 1px dashed var(--line); }
 .task-ico { font-size: 18px; } .task-main { flex: 1; display: flex; flex-direction: column; } .task-main small { color: var(--muted); }
 .task.done .task-main b { text-decoration: line-through; color: var(--muted); }
@@ -377,3 +378,6 @@ div.kpi { cursor: default; }
   .ev-form, .task-form { grid-template-columns: 1fr; }
   .cal-d { min-height: 44px; } .cal-d i { display: none; } .cal-d:has(i) { background: #eef3fb; }
 }
+.ri-dialog { width: min(760px, 96vw); }
+.ri-dialog.drag { outline: 3px dashed var(--accent); outline-offset: -8px; background: var(--accent-soft); }
+.update-bar { position: fixed; left: 50%; bottom: 16px; transform: translateX(-50%); z-index: 9999; background: #13294b; color: #fff; padding: 10px 14px; border-radius: 10px; box-shadow: 0 6px 24px rgba(0,0,0,.25); display: flex; gap: 10px; align-items: center; font-size: 14px; }

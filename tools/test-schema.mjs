@@ -212,6 +212,35 @@ await as(newT, async () => {
 await as(stu2, async () => ok((await q(`select count(*)::int n from conduct_events`))[0].n === 0, 'HS lớp khác không thấy nề nếp của lớp 10A1'));
 await as(newStu, async () => { const c = await q(`select category from conduct_events`); ok(c.length === 1 && c[0].category === 'Phát biểu xây dựng bài', 'HS chỉ thấy nề nếp của mình'); });
 
+// cán sự lớp
+ok(await as(stu, () => throws(() => q(`insert into attendance(class_id, student_id, date, session, status) values ($1,$2,current_date,'chieu','late')`, [ids.cl, namSid]))), 'HS thường không điểm danh được');
+ok((await as(newT, () => q(`update students set officer = 'lop_truong' where id = $1 returning id`, [ids.s1]))).length === 1, 'GVCN chỉ định lớp trưởng');
+ok(await as(stu, () => throws(() => q(`update students set officer = 'bi_thu' where id = $1`, [namSid]).then(r => { if (!r.length) throw new Error('0'); }))), 'cán sự không tự chỉ định người khác');
+await as(stu, async () => {
+  ok((await q(`select count(*)::int n from students where class_id = $1`, [ids.cl]))[0].n >= 2, 'lớp trưởng xem được danh sách lớp mình');
+  ok((await q(`select count(*)::int n from students where class_id = $1`, [ids.cl2]))[0].n === 0, 'lớp trưởng không thấy lớp khác');
+  await q(`insert into attendance(class_id, student_id, date, session, status) values ($1,$2,current_date,'chieu','late')`, [ids.cl, namSid]);
+  ok((await q(`select count(*)::int n from attendance where class_id = $1`, [ids.cl]))[0].n >= 3, 'lớp trưởng điểm danh được lớp mình');
+  ok(await throws(() => q(`insert into attendance(class_id, student_id, date, status) values ($1,$2,current_date,'absent')`, [ids.cl2, ids.s2])), 'lớp trưởng không điểm danh lớp khác');
+  const ev = (await q(`insert into conduct_events(class_id, student_id, kind, category, points) values ($1,$2,'violation','Mất trật tự',-2) returning id`, [ids.cl, namSid]))[0].id;
+  ok(!!ev, 'lớp trưởng ghi vi phạm / tính điểm thi đua');
+  ok(await throws(() => q(`insert into conduct_events(class_id, student_id, kind, category, points) values ($1,$2,'reward','Tự cộng',100)`, [ids.cl, ids.s1])), 'cán sự không cộng điểm vượt mức');
+  const other = (await q(`select id from conduct_events where recorded_by <> auth.uid() limit 1`))[0];
+  ok((await q(`delete from conduct_events where id = $1 returning id`, [other.id])).length === 0, 'cán sự không xóa được ghi nhận của GVCN');
+  ok((await q(`delete from conduct_events where id = $1 returning id`, [ev])).length === 1, 'cán sự xóa được ghi nhận mình vừa nhập');
+  ok((await q(`select count(*)::int n from homeroom_tasks`))[0].n === 0, 'cán sự không thấy việc riêng của GVCN');
+  ok((await q(`select count(*)::int n from results where student_id <> $1`, [ids.s1]))[0].n === 0, 'cán sự không xem được điểm của bạn');
+});
+// giao việc
+await as(newT, () => q(`insert into homeroom_tasks(class_id, title, assignee_student) values ($1,'Thu tiền quỹ lớp',$2), ($1,'Trực nhật',null)`, [ids.cl, ids.s1]));
+await as(newT, () => q(`insert into homeroom_tasks(class_id, title, assignee_label) values ($1,'Tập văn nghệ','Cả lớp')`, [ids.cl]));
+await as(stu, async () => {
+  const ts = (await q(`select title from homeroom_tasks order by title`)).map(r => r.title);
+  ok(ts.length === 2 && ts.includes('Thu tiền quỹ lớp') && ts.includes('Tập văn nghệ'), 'HS thấy việc giao cho mình và cả lớp, không thấy việc riêng GVCN');
+  ok((await q(`update homeroom_tasks set done = true where title = 'Thu tiền quỹ lớp' returning id`)).length === 1, 'HS đánh dấu xong việc được giao');
+  ok((await q(`update homeroom_tasks set done = true where title = 'Tập văn nghệ' returning id`)).length === 0, 'HS không đánh dấu xong việc chung của cả lớp');
+});
+await as(stu2, async () => ok((await q(`select count(*)::int n from homeroom_tasks`))[0].n === 0, 'HS lớp khác không thấy việc của lớp 10A1'));
 // hết khóa
 await q(`update cohorts set end_date = current_date - 1`);
 const n = (await q(`select purge_expired_accounts() n`))[0].n;
