@@ -4,6 +4,7 @@ const path = require('path');
 global.window = {};
 const root = path.join(__dirname, '..');
 require(path.join(root, 'js/curriculum.js'));
+require(path.join(root, 'js/curriculum-subjects.js'));
 const fs = require('fs');
 for (const f of fs.readdirSync(path.join(root, 'js')).filter(f => /^bank-.*\.js$/.test(f)).sort()) require(path.join(root, 'js', f));
 require(path.join(root, 'js/figures.js'));
@@ -13,13 +14,21 @@ try { katex = require('katex'); } catch (e) { try { katex = require(path.join(ro
 const Q = window.QBANK, C = window.CURRICULUM;
 const chapters = {};
 for (const g of Object.keys(C)) for (const s of [1, 2]) for (const c of C[g][s]) chapters[c.id] = c;
+const CS = window.CURRICULUM_SUBJECTS;
+for (const sub of Object.keys(CS)) for (const g of Object.keys(CS[sub])) for (const sm of [1, 2]) for (const c of CS[sub][g][sm]) chapters[c.id] = Object.assign({ subject: sub, grade: +g }, c);
 const errs = []; const ids = new Set(); const stats = {};
 const texts = (q) => [q.content, q.explanation, q.answer, ...(q.options || []), ...(q.statements || [])].filter(x => typeof x === 'string');
 for (const q of Q) {
   const E = (m) => errs.push(`${q.id}: ${m}`);
   if (ids.has(q.id)) E('trùng id'); ids.add(q.id);
   const c = chapters[q.chapter]; if (!c) E('chương không tồn tại'); else if (!c.topics.includes(q.topic)) E('topic không khớp: ' + q.topic);
-  if (!c || String(q.grade) !== q.chapter.split('-')[0]) E('lớp không khớp chương');
+  const sub = q.subject || 'toan';
+  if (sub === 'toan') { if (!c || String(q.grade) !== q.chapter.split('-')[0]) E('lớp không khớp chương'); }
+  else {
+    if (!c || c.subject !== sub || c.grade !== +q.grade) E('chương không thuộc môn/lớp: ' + q.chapter);
+    if (!['exam', 'practice'].includes(q.pool)) E('thiếu pool (exam/practice)');
+    if (!q.id.startsWith(sub + q.grade + '-')) E('id phải bắt đầu bằng ' + sub + q.grade + '-');
+  }
   if (!['mcq', 'tf', 'short', 'essay'].includes(q.type)) E('type');
   if (!['NB', 'TH', 'VD'].includes(q.level)) E('level');
   if (q.type === 'mcq') { if (q.options.length !== 4 || !(q.answer >= 0 && q.answer < 4)) E('mcq'); if (new Set(q.options).size !== 4) E('phương án trùng nhau'); }
@@ -33,7 +42,7 @@ for (const q of Q) {
     }
   }
   if (q.figure) { try { const r = window.Figures.render(q.figure); if (!r || !(r.svg || r.img)) E('hình rỗng'); } catch (e) { E('Hình vẽ: ' + e.message); } }
-  const k = `${q.grade} ${q.type} ${q.level}`; stats[k] = (stats[k] || 0) + 1;
+  const k = `${q.subject || 'toan'}${q.grade} ${q.type} ${q.level}`; stats[k] = (stats[k] || 0) + 1;
 }
 const pos = [0, 0, 0, 0]; Q.filter(q => q.type === 'mcq').forEach(q => pos[q.answer]++);
 console.log(`Tổng ${Q.length} câu. Vị trí đáp án đúng A/B/C/D: ${pos.join('/')}. ${katex ? 'Đã kiểm tra LaTeX bằng KaTeX.' : 'KHÔNG có KaTeX – bỏ qua kiểm tra LaTeX.'}`);

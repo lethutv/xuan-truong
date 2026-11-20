@@ -333,3 +333,47 @@ body.portal .topbar .brand { overflow: visible; }
 .auth-brand b { font-size: 21px; color: #13294b; }
 #authOverlay { background: radial-gradient(circle at 50% 0%, #2453a6 0%, #13294b 60%); }
 @media (max-width: 640px) { .brand-txt small { display: none; } .auth-brand img { width: 96px; height: 96px; } }
+
+/* ---------- Lớp chủ nhiệm ---------- */
+.hr-nav { display: flex; gap: 4px; flex-wrap: wrap; border-bottom: 1px solid var(--line); margin-bottom: 14px; }
+.hr-nav button { border: 0; background: none; padding: 8px 12px; cursor: pointer; border-bottom: 2px solid transparent; color: var(--muted); font: inherit; font-weight: 600; }
+.hr-nav button:hover { color: var(--accent); }
+.hr-nav button.active { color: var(--accent); border-bottom-color: var(--accent); }
+div.kpi { cursor: default; }
+.st-pill, .st-btn { display: inline-flex; align-items: center; justify-content: center; min-width: 26px; height: 26px; border-radius: 6px; font-weight: 700; font-size: 12.5px; border: 1px solid transparent; }
+.st-ok { background: #e3f4ea; color: #18794e; } .st-late { background: #fff4e5; color: #b4461a; } .st-exc { background: #e8f0fc; color: #1f5fbf; } .st-abs { background: #fde8e6; color: #c0392b; }
+.att-head { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-bottom: 8px; }
+.att-legend { margin: 4px 0 10px; color: var(--muted); }
+.att-list { border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+.att-row { display: grid; grid-template-columns: 30px minmax(140px, 1fr) auto minmax(120px, 1fr); align-items: center; gap: 8px; padding: 6px 10px; border-bottom: 1px solid var(--line); }
+.att-row:last-child { border-bottom: 0; } .att-row:nth-child(even) { background: #fafbfd; }
+.att-no { color: var(--muted); text-align: right; } .att-name { font-weight: 600; }
+.att-btns { display: flex; gap: 4px; }
+.st-btn { cursor: pointer; width: 36px; height: 32px; opacity: .35; filter: grayscale(.6); }
+.st-btn.on { opacity: 1; filter: none; border-color: currentColor; box-shadow: 0 1px 4px rgba(0,0,0,.08); }
+.att-note { padding: 5px 8px; font-size: 13px; }
+.ev-form { display: grid; grid-template-columns: minmax(200px, 1fr) minmax(240px, 1.4fr); gap: 12px; align-items: start; background: #fafbfd; border: 1px solid var(--line); border-radius: 10px; padding: 12px; }
+.ev-form select[multiple] { min-height: 130px; }
+.ev-form .row { display: flex; gap: 8px; } .ev-form .row label { flex: 1; }
+.btn.danger { border-color: #e7b3ad; color: var(--danger); }
+.rk { display: inline-block; padding: 1px 8px; border-radius: 10px; font-weight: 700; font-size: 12.5px; }
+.rk-a { background: #e3f4ea; color: #18794e; } .rk-b { background: #e8f0fc; color: #1f5fbf; } .rk-c { background: #fff4e5; color: #b4461a; } .rk-d { background: #fde8e6; color: #c0392b; }
+.gb tr.flag td { background: #fff8f6; }
+.task-form { display: grid; grid-template-columns: 2fr auto auto 1fr auto; gap: 8px; align-items: center; }
+.task { display: flex; align-items: center; gap: 8px; padding: 7px 0; border-bottom: 1px dashed var(--line); }
+.task-ico { font-size: 18px; } .task-main { flex: 1; display: flex; flex-direction: column; } .task-main small { color: var(--muted); }
+.task.done .task-main b { text-decoration: line-through; color: var(--muted); }
+.task.late .task-main b { color: var(--danger); }
+.cal { display: grid; grid-template-columns: repeat(7, 1fr); gap: 3px; font-size: 12px; }
+.cal-h { text-align: center; font-weight: 700; color: var(--muted); padding: 3px 0; }
+.cal-d { min-height: 62px; border: 1px solid var(--line); border-radius: 6px; padding: 3px; overflow: hidden; background: #fff; }
+.cal-d.empty { border: 0; background: none; }
+.cal-d.today { border-color: var(--accent); background: var(--accent-soft); }
+.cal-d > span { font-weight: 700; color: #13294b; }
+.cal-d i { display: block; font-style: normal; font-size: 10.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; background: #eef3fb; border-radius: 3px; padding: 0 3px; margin-top: 2px; }
+.cal-d i.done { opacity: .5; text-decoration: line-through; }
+@media (max-width: 720px) {
+  .att-row { grid-template-columns: 24px 1fr; } .att-btns, .att-note { grid-column: 1 / -1; }
+  .ev-form, .task-form { grid-template-columns: 1fr; }
+  .cal-d { min-height: 44px; } .cal-d i { display: none; } .cal-d:has(i) { background: #eef3fb; }
+}

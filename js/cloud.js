@@ -267,17 +267,22 @@
   function installSubjectAdapters() {
     const origChaptersOf = DT.chaptersOf, origChapterById = DT.chapterById;
     const custom = () => G.CLOUD.subject && G.CLOUD.subject !== 'toan';
+    const CSUB = () => (G.CURRICULUM_SUBJECTS || {})[G.CLOUD.subject];
+    const defined = (grade, sem) => { const c = CSUB(); if (!c || !c[grade]) return []; return sem === 'all' || !c[grade][sem] ? [].concat(c[grade][1] || [], c[grade][2] || []) : c[grade][sem]; };
     DT.chaptersOf = (grade, sem) => {
       if (!custom()) return origChaptersOf(grade, sem);
+      const base = defined(grade, sem); const known = new Set(defined(grade, 'all').map(c => c.id));
       const map = new Map();
       for (const q of DT.Bank.all()) if (String(q.grade) === String(grade) && q.chapter) {
         if (!map.has(q.chapter)) map.set(q.chapter, new Set()); if (q.topic) map.get(q.chapter).add(q.topic);
       }
-      return [...map.entries()].sort((a, b) => a[0].localeCompare(b[0], 'vi', { numeric: true })).map(([id, t]) => ({ id, name: id, topics: [...t] }));
+      const extra = [...map.entries()].filter(([id]) => !known.has(id)).sort((a, b) => a[0].localeCompare(b[0], 'vi', { numeric: true })).map(([id, t]) => ({ id, name: id, topics: [...t] }));
+      return base.concat(sem === 'all' || !base.length ? extra : []);   // chương giáo viên tự thêm hiện ở "Cả năm"
     };
     DT.chapterById = (id) => {
       if (!custom()) return origChapterById(id);
       if (!id || id === '__new') return null;
+      const c = CSUB(); if (c) for (const g of Object.keys(c)) for (const s of [1, 2]) { const f = (c[g][s] || []).find(x => x.id === id); if (f) return f; }
       const topics = new Set(); DT.Bank.all().forEach(q => { if (q.chapter === id && q.topic) topics.add(q.topic); });
       return { id, name: id, topics: [...topics] };
     };
@@ -308,11 +313,11 @@
     }
     if (role === 'student') {
       M.push({ g: 'Học tập', items: [{ v: 'homework', i: '📚', l: 'Bài tập về nhà' }, { v: 'practice', i: '🎯', l: 'Luyện tập' }] });
-      M.push({ g: 'Kết quả', items: [{ v: 'scores', i: '📊', l: 'Điểm của tôi' }] });
+      M.push({ g: 'Kết quả', items: [{ v: 'scores', i: '📊', l: 'Điểm của tôi' }, { v: 'conduct', i: '🗓️', l: 'Chuyên cần & nề nếp' }] });
       M.push({ g: 'Liên hệ', items: [{ v: 'contact', i: '☎️', l: 'Giáo viên của lớp' }] });
     }
     if (role === 'parent') {
-      M.push({ g: 'Con tôi', items: [{ v: 'scores', i: '📊', l: 'Điểm kiểm tra' }, { v: 'homework', i: '📚', l: 'Bài tập về nhà' }] });
+      M.push({ g: 'Con tôi', items: [{ v: 'scores', i: '📊', l: 'Điểm kiểm tra' }, { v: 'homework', i: '📚', l: 'Bài tập về nhà' }, { v: 'conduct', i: '🗓️', l: 'Chuyên cần & nề nếp' }] });
       M.push({ g: 'Liên hệ', items: [{ v: 'contact', i: '☎️', l: 'Giáo viên chủ nhiệm' }] });
     }
     return M;
@@ -327,7 +332,7 @@
     setSubject(subs.includes(saved) ? saved : (subs[0] || 'toan'));
     // tạo vùng chứa cho các trang mới
     const main = $('main');
-    for (const k of ['approve', 'classes', 'homework', 'scores', 'home', 'accounts', 'assign', 'homeroom', 'gradebook', 'contact']) {
+    for (const k of ['approve', 'classes', 'homework', 'scores', 'home', 'accounts', 'assign', 'homeroom', 'gradebook', 'contact', 'conduct']) {
       if (!$('#view-' + k)) { const sec = document.createElement('section'); sec.id = 'view-' + k; sec.className = 'view'; sec.innerHTML = `<div class="panel" id="${k}Root"></div>`; main.appendChild(sec); }
     }
     // thanh trên

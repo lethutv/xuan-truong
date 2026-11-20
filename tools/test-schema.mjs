@@ -33,7 +33,8 @@ await db.exec(fs.readFileSync(APP + '/supabase/schema.sql', 'utf8'));
 await db.exec(`grant select, insert, update, delete on all tables in schema public to anon, authenticated;
 grant select, insert, update, delete on storage.objects to authenticated;`);
 await db.exec(fs.readFileSync(APP + '/supabase/seed.sql', 'utf8'));
-ok((await q(`select count(*)::int n from questions`))[0].n === 534, 'seed 534 câu');
+const SEEDN = (await q(`select count(*)::int n, count(*) filter (where pool='exam')::int e, count(*) filter (where pool='practice')::int p from questions`))[0];
+ok(SEEDN.n > 1000 && SEEDN.e + SEEDN.p === SEEDN.n, `seed ${SEEDN.n} câu (${SEEDN.e} đề, ${SEEDN.p} luyện tập)`);
 
 async function as(uid, fn) {
   await db.exec(`set role authenticated`); await db.query(`select set_config('request.jwt.claim.sub', $1, false)`, [uid || '']);
@@ -68,7 +69,7 @@ ok(await throws(() => mk('cohoa', 'teacher')), 'không trùng tên đăng nhập
 ok(await throws(() => mk('Tên Sai', 'teacher')), 'tên đăng nhập sai định dạng bị từ chối');
 ok(await as(teacher, () => throws(() => q(`select admin_create_account('gv2','MatKhau1','teacher')`))), 'GV KHÔNG tạo được tài khoản');
 ok(await as(teacher, () => throws(() => q(`select admin_create_account('hsx','MatKhau1','student','', $1)`, [ids.s1]))), 'GV KHÔNG tạo được tài khoản HS');
-ok((await as(teacher, () => q(`select count(*)::int n from questions where pool='exam'`)))[0].n === 300, 'GV thấy kho đề (300)');
+ok((await as(teacher, () => q(`select count(*)::int n from questions where pool='exam'`)))[0].n === SEEDN.e, 'GV thấy toàn bộ kho đề');
 await as(teacher, () => q(`insert into exams(id, name, data) values ('ex1','Giữa kỳ','{}')`));
 await as(teacher, () => q(`insert into results(id, exam_id, student_id, total, image_path) values ('r1','ex1',$1, 8.5, $2), ('r2','ex1',$3, 6, $4)`, [ids.s1, ids.s1 + '/r1.jpg', ids.s2, ids.s2 + '/r2.jpg']));
 await as(teacher, () => q(`insert into storage.objects(bucket_id, name) values ('phieu', $1), ('phieu', $2)`, [ids.s1 + '/r1.jpg', ids.s2 + '/r2.jpg']));
@@ -83,7 +84,7 @@ ok((await q(`select count(*)::int n from parent_links where parent_id=$1 and stu
 // học sinh
 await as(stu, async () => {
   ok((await q(`select count(*)::int n from questions where pool='exam'`))[0].n === 0, 'HS KHÔNG thấy câu kho đề');
-  ok((await q(`select count(*)::int n from questions`))[0].n === 234, 'HS chỉ thấy 234 câu luyện tập');
+  ok((await q(`select count(*)::int n from questions`))[0].n === SEEDN.p, 'HS chỉ thấy câu luyện tập');
   ok((await q(`select count(*)::int n from exams`))[0].n === 0, 'HS không thấy đề');
   const rs = await q(`select id, total from results`); ok(rs.length === 1 && rs[0].id === 'r1', 'HS chỉ thấy điểm của mình');
   ok((await q(`select count(*)::int n from students`))[0].n === 1, 'HS chỉ thấy hồ sơ mình');
@@ -180,6 +181,18 @@ await as(par, async () => {
 });
 await as(stu2, async () => ok((await q(`select * from my_contacts()`)).every(c => c.class_name === '10A2'), 'HS chỉ thấy GV lớp mình'));
 ok((await q(`select count(*)::int n from subjects`))[0].n >= 16, 'có đủ danh sách môn học');
+
+// lớp chủ nhiệm: điểm danh, nề nếp, công việc
+await as(newT, () => q(`insert into attendance(class_id, student_id, date, session, status) values ($1,$2,current_date,'sang','absent'), ($1,$3,current_date,'sang','present')`, [ids.cl, ids.s1, namSid]));
+await as(newT, () => q(`insert into conduct_events(class_id, student_id, kind, category, points) values ($1,$2,'violation','Đi muộn',-2), ($1,$3,'reward','Phát biểu xây dựng bài',2)`, [ids.cl, ids.s1, namSid]));
+await as(newT, () => q(`insert into homeroom_tasks(class_id, title, kind) values ($1,'Họp phụ huynh đầu năm','meeting')`, [ids.cl]));
+await as(par, async () => {
+  const at = await q(`select student_id, status from attendance`); ok(at.length === 1 && at[0].student_id === ids.s1, 'PH chỉ thấy điểm danh của con');
+  ok((await q(`select count(*)::int n from homeroom_tasks`))[0].n === 0, 'PH không thấy công việc chủ nhiệm');
+  ok(await throws(() => q(`insert into conduct_events(class_id, student_id, kind, category, points) values ($1,$2,'reward','Tự cộng',100)`, [ids.cl, ids.s1])), 'PH không tự ghi khen thưởng');
+});
+await as(stu2, async () => ok((await q(`select count(*)::int n from conduct_events`))[0].n === 0, 'HS lớp khác không thấy nề nếp của lớp 10A1'));
+await as(newStu, async () => { const c = await q(`select category from conduct_events`); ok(c.length === 1 && c[0].category === 'Phát biểu xây dựng bài', 'HS chỉ thấy nề nếp của mình'); });
 
 // hết khóa
 await q(`update cohorts set end_date = current_date - 1`);

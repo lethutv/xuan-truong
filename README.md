@@ -1,4 +1,4 @@
-# Tạo đề Toán THPT (lớp 10, 11, 12 – Kết nối tri thức) · bản MVP
+# Tiến Thịnh EDU – Tạo đề & quản lý lớp THPT (Toán, Lí, Hóa, Tiếng Anh 10–12 – Kết nối tri thức)
 
 Ứng dụng web chạy hoàn toàn trên trình duyệt (không cần máy chủ, không cần Internet, không cần cài đặt) để soạn đề kiểm tra Toán theo ma trận, sinh nhiều mã đề, chỉnh sửa, lưu và xuất PDF/Word kèm đáp án riêng.
 
@@ -144,9 +144,9 @@ Khi `js/config.js` để trống, app chạy **ngoại tuyến**: một giáo vi
 |---|---|
 | **Admin** | Tổng quan · *Người dùng*: Duyệt đăng ký, Tài khoản · *Tổ chức*: Khóa, lớp & học sinh, Phân công giảng dạy · *Đề kiểm tra*: Tạo đề, Đề đã lưu, Ngân hàng câu hỏi · *Chấm & điểm*: Chấm phiếu, Bảng điểm · *Học tập*: Bài tập về nhà, Luyện tập · *Lớp chủ nhiệm*: Xem theo lớp |
 | **Giáo viên bộ môn** | Tổng quan · Lớp & học sinh · Đề kiểm tra (theo môn của mình) · Chấm & điểm · Bài tập về nhà |
-| **GV chủ nhiệm** | Thêm nhóm **Lớp chủ nhiệm**: danh sách học sinh kèm tài khoản và SĐT phụ huynh, điểm tổng hợp mọi môn, tình hình nộp bài tập (ai chưa nộp) |
+| **GV chủ nhiệm** | Nhóm **Lớp chủ nhiệm** gồm 7 thẻ: Tổng quan (sĩ số, vắng/muộn hôm nay, HS cần chú ý, việc sắp tới) · Học sinh & PH · Điểm danh – Chuyên cần (sáng/chiều, 4 trạng thái, thống kê tháng, xuất Excel) · Nề nếp – Vi phạm · Thi đua – Khen thưởng (bảng xếp hạng, điểm rèn luyện = 100 + khen − vi phạm, xếp loại đề xuất Tốt/Khá/Đạt/Chưa đạt) · Kết quả học tập (điểm mọi môn, cảnh báo HS yếu, ai chưa nộp bài) · Công việc & lịch (việc cần làm, họp, sự kiện, lịch tháng) |
 | **Học sinh** | Tổng quan (điểm TB, bài tập cần làm) · Bài tập về nhà · Luyện tập · Điểm của tôi · Giáo viên của lớp |
-| **Phụ huynh** | Chọn con (nếu nhiều con) · Tổng quan · Điểm kiểm tra · Bài tập về nhà · Liên hệ giáo viên chủ nhiệm và giáo viên bộ môn |
+| **Phụ huynh** | Chọn con (nếu nhiều con) · Tổng quan · Điểm kiểm tra · Bài tập về nhà · Chuyên cần & nề nếp (chỉ xem) · Liên hệ giáo viên chủ nhiệm và giáo viên bộ môn |
 
 **Nhiều môn học:**
 - Đề kiểm tra, ngân hàng câu hỏi và bài tập đều tách riêng theo môn đang chọn.
@@ -273,7 +273,10 @@ js/grading.js       Danh sách học sinh, chấm điểm, tô màu, xuất Exce
 js/practice.js      Luyện tập cho học sinh (chỉ kho luyện tập) và xuất trang riêng
 js/config.js        Cấu hình Supabase (để trống = ngoại tuyến)
 js/cloud.js         Chế độ trực tuyến: đăng nhập/đăng ký, đồng bộ, menu theo vai trò, môn học, lớp & học sinh, duyệt tài khoản, bài tập, xem điểm
-js/portal.js        Các trang cổng: Tổng quan, Tài khoản, Phân công, Lớp chủ nhiệm, Bảng điểm, Liên hệ giáo viên
+js/portal.js        Các trang cổng: Tổng quan, Tài khoản, Phân công, Bảng điểm, Liên hệ giáo viên
+js/homeroom.js      Lớp chủ nhiệm (điểm danh, nề nếp, thi đua, kết quả học tập, công việc & lịch) + trang Chuyên cần cho HS/PH
+js/curriculum-subjects.js  Chương trình Vật lí, Hóa học, Tiếng Anh (KNTT / Global Success)
+js/bank-ly*, bank-hoa*, bank-anh*  Ngân hàng Lí, Hóa, Anh 10–12 (chỉ đưa lên Supabase qua seed.sql)
 tools/portal-test.html  Xem thử giao diện từng vai trò bằng dữ liệu giả (?role=admin|teacher|homeroom|student|parent)
 supabase/schema.sql Cơ sở dữ liệu, phân quyền (RLS), admin tạo tài khoản, tự xóa tài khoản hết khóa
 supabase/seed.sql   Ngân hàng câu hỏi mẫu (534 câu) để nạp lên Supabase

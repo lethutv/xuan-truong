@@ -7,7 +7,7 @@
   const cohort = { id: id(900), name: '2025-2028', end_date: '2028-06-30' };
   const classes = [{ id: id(801), name: '10A1', grade: 10, cohort_id: cohort.id, school_year: '2025-2026' }, { id: id(802), name: '10A2', grade: 10, cohort_id: cohort.id, school_year: '2025-2026' }];
   const profiles = [
-    { id: id(1), role: 'admin', username: '0987266580', full_name: 'Quản trị viên', subjects: [], phone: '0987266580', created_at: now },
+    { id: id(1), role: 'admin', username: 'admin', full_name: 'Quản trị viên', subjects: [], phone: null, created_at: now },
     { id: id(2), role: 'teacher', username: '0911222333', full_name: 'Trần Thị Lan', subjects: ['Toán'], phone: '0911222333', created_at: now },
     { id: id(3), role: 'teacher', username: '0911222444', full_name: 'Lê Văn Minh', subjects: ['Ngữ văn'], phone: '0911222444', created_at: now },
     { id: id(4), role: 'student', username: '0912345678', full_name: 'Nguyễn Văn Nam', subjects: [], phone: '0912345678', created_at: now },
@@ -33,18 +33,25 @@
   const kidIds = new Set(visibleStudents.map(s => s.id));
   const qs = (G.QBANK || []).map(q => ({ id: q.id, subject: 'toan', pool: q.id.match(/-(\d+)$/) && +q.id.match(/-(\d+)$/)[1] >= 21 ? 'exam' : 'practice', grade: q.grade, chapter: q.chapter, topic: q.topic, type: q.type, level: q.level, data: q, deleted: false }));
   const staff = role === 'admin' || role === 'teacher' || role === 'homeroom';
+  const D = (k) => { const d = new Date(); d.setDate(d.getDate() - k); return d.toISOString().slice(0, 10); };
+  const hr = {
+    att: [[101, 0, "present"], [102, 0, "absent", "không báo"], [103, 0, "late", "muộn 10 phút"], [101, 1, "present"], [102, 1, "excused", "ốm"], [103, 1, "present"], [102, 3, "absent"], [102, 5, "excused"]].map(([s, k, st, note], i) => ({ id: "at" + i, class_id: classes[0].id, student_id: id(s), date: D(k), session: "sang", status: st, note: note || null })),
+    ev: [[101, 0, "reward", "Phát biểu xây dựng bài", 2], [101, 2, "reward", "Đạt điểm 9–10", 3], [102, 0, "violation", "Không học bài / không làm bài tập", -3], [102, 1, "violation", "Đi học muộn", -2], [103, 0, "violation", "Không mặc đồng phục", -2]].map(([s, k, kind, cat, p], i) => ({ id: "ev" + i, class_id: classes[0].id, student_id: id(s), date: D(k), kind, category: cat, points: p, note: null, created_at: now })),
+    tasks: [{ id: "t1", class_id: classes[0].id, title: "Họp phụ huynh giữa kỳ I", kind: "meeting", due_at: new Date(Date.now() + 3 * 864e5).toISOString(), done: false, note: "Phòng 10A1" }, { id: "t2", class_id: classes[0].id, title: "Thu hồ sơ bảo hiểm y tế", kind: "task", due_at: new Date(Date.now() - 864e5).toISOString(), done: false }, { id: "t3", class_id: classes[0].id, title: "Sinh hoạt lớp tuần", kind: "event", due_at: new Date().toISOString(), done: true }]
+  };
   const T = {
     questions: staff ? qs : qs.filter(q => q.pool === 'practice'), classes, cohorts: [cohort], students: visibleStudents,
     profiles: staff ? profiles : profiles.filter(p => p.id === me), exams: staff ? exams : [],
     results: staff ? results : results.filter(r => kidIds.has(r.student_id)), assignments: staff ? assignments : assignments.filter(a => visibleStudents.some(s => s.class_id === a.class_id)),
-    submissions: staff ? submissions : submissions.filter(s => kidIds.has(s.student_id)), parent_links: [{ parent_id: id(5), student_id: id(101) }], teacher_classes: tcs, registrations
+    submissions: staff ? submissions : submissions.filter(s => kidIds.has(s.student_id)), parent_links: [{ parent_id: id(5), student_id: id(101) }], teacher_classes: tcs, registrations,
+    attendance: hr.att.filter(a => staff || kidIds.has(a.student_id)), conduct_events: hr.ev.filter(e => staff || kidIds.has(e.student_id)), homeroom_tasks: staff ? hr.tasks : []
   };
   const ok = (data) => Promise.resolve({ data, error: null });
   function query(table) {
     let rows = (T[table] || []).slice(); let single = false;
     const q = {
       select() { return q; }, range() { return q; }, order() { return q; }, match() { return q; },
-      eq(k, v) { rows = rows.filter(r => String(r[k]) === String(v)); return q; },
+      eq(k, v) { rows = rows.filter(r => String(r[k]) === String(v)); return q; }, gte(k, v) { rows = rows.filter(r => String(r[k]) >= String(v)); return q; },
       single() { single = true; return q; },
       insert(x) { const arr = [].concat(x).map(r => Object.assign({ id: 'n' + Math.random().toString(36).slice(2, 8), created_at: now }, r)); (T[table] = T[table] || []).push(...arr); rows = arr; return q; },
       upsert(x) { return q.insert(x); }, update() { return q; }, delete() { return q; },

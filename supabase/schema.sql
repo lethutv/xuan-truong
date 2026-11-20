@@ -530,6 +530,69 @@ revoke execute on function public.my_contacts() from public, anon;
 grant execute on function public.my_contacts() to authenticated;
 
 -- ---------------------------------------------------------------------
+-- LỚP CHỦ NHIỆM: điểm danh, nề nếp – vi phạm, thi đua – khen thưởng, công việc & lịch
+-- Giáo viên/admin ghi; học sinh & phụ huynh chỉ XEM bản ghi của mình / của con.
+-- ---------------------------------------------------------------------
+create table if not exists public.attendance (
+  id uuid primary key default gen_random_uuid(),
+  class_id uuid not null references public.classes(id) on delete cascade,
+  student_id uuid not null references public.students(id) on delete cascade,
+  date date not null,
+  session text not null default 'sang' check (session in ('sang', 'chieu')),
+  status text not null check (status in ('present', 'late', 'excused', 'absent')),
+  note text,
+  recorded_by uuid references public.profiles(id) on delete set null default auth.uid(),
+  updated_at timestamptz not null default now(),
+  unique (student_id, date, session)
+);
+create index if not exists attendance_class_date on public.attendance(class_id, date);
+
+create table if not exists public.conduct_events (
+  id uuid primary key default gen_random_uuid(),
+  class_id uuid not null references public.classes(id) on delete cascade,
+  student_id uuid not null references public.students(id) on delete cascade,
+  date date not null default current_date,
+  kind text not null check (kind in ('violation', 'reward')),
+  category text not null,
+  points int not null default 0,                       -- vi phạm: số âm; khen thưởng: số dương
+  note text,
+  recorded_by uuid references public.profiles(id) on delete set null default auth.uid(),
+  created_at timestamptz not null default now()
+);
+create index if not exists conduct_class_date on public.conduct_events(class_id, date);
+
+create table if not exists public.homeroom_tasks (
+  id uuid primary key default gen_random_uuid(),
+  class_id uuid not null references public.classes(id) on delete cascade,
+  title text not null,
+  kind text not null default 'task' check (kind in ('task', 'meeting', 'event')),
+  due_at timestamptz,
+  done boolean not null default false,
+  note text,
+  created_by uuid references public.profiles(id) on delete set null default auth.uid(),
+  created_at timestamptz not null default now()
+);
+
+alter table public.attendance enable row level security;
+alter table public.conduct_events enable row level security;
+alter table public.homeroom_tasks enable row level security;
+grant select, insert, update, delete on public.attendance, public.conduct_events, public.homeroom_tasks to authenticated;
+revoke all on public.attendance, public.conduct_events, public.homeroom_tasks from anon;
+
+drop policy if exists attendance_staff on public.attendance;
+drop policy if exists attendance_self on public.attendance;
+drop policy if exists conduct_staff on public.conduct_events;
+drop policy if exists conduct_self on public.conduct_events;
+drop policy if exists hrtasks_staff on public.homeroom_tasks;
+create policy attendance_staff on public.attendance for all to authenticated using (public.is_staff()) with check (public.is_staff());
+create policy attendance_self on public.attendance for select to authenticated
+  using (student_id = public.my_student_id() or student_id in (select public.my_children()));
+create policy conduct_staff on public.conduct_events for all to authenticated using (public.is_staff()) with check (public.is_staff());
+create policy conduct_self on public.conduct_events for select to authenticated
+  using (student_id = public.my_student_id() or student_id in (select public.my_children()));
+create policy hrtasks_staff on public.homeroom_tasks for all to authenticated using (public.is_staff()) with check (public.is_staff());
+
+-- ---------------------------------------------------------------------
 -- Nộp bài tập về nhà – chấm trên máy chủ (HS không sửa được điểm)
 -- answers: { "<id câu>": 2 | [true,false,..] | "2,5" | "bài làm tự luận" }
 -- ---------------------------------------------------------------------
