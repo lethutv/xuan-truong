@@ -67,11 +67,20 @@ const teacher = await mk('cohoa', 'teacher', { name: 'Cô Hoa', subjects: '{toan
 ok((await q(`select role from profiles where id=$1`, [teacher]))[0].role === 'teacher', 'admin tạo được giáo viên');
 ok(await throws(() => mk('cohoa', 'teacher')), 'không trùng tên đăng nhập');
 ok(await throws(() => mk('Tên Sai', 'teacher')), 'tên đăng nhập sai định dạng bị từ chối');
+await as(admin, () => q(`insert into teacher_classes(teacher_id, class_id, subject, homeroom) values ($1, $2, 'toan', false)`, [teacher, ids.cl]));
 ok(await as(teacher, () => throws(() => q(`select admin_create_account('gv2','MatKhau1','teacher')`))), 'GV KHÔNG tạo được tài khoản');
 ok(await as(teacher, () => throws(() => q(`select admin_create_account('hsx','MatKhau1','student','', $1)`, [ids.s1]))), 'GV KHÔNG tạo được tài khoản HS');
 ok((await as(teacher, () => q(`select count(*)::int n from questions where pool='exam'`)))[0].n === SEEDN.e, 'GV thấy toàn bộ kho đề');
 await as(teacher, () => q(`insert into exams(id, name, data) values ('ex1','Giữa kỳ','{}')`));
-await as(teacher, () => q(`insert into results(id, exam_id, student_id, total, image_path) values ('r1','ex1',$1, 8.5, $2), ('r2','ex1',$3, 6, $4)`, [ids.s1, ids.s1 + '/r1.jpg', ids.s2, ids.s2 + '/r2.jpg']));
+await as(teacher, () => q(`insert into results(id, exam_id, student_id, total, image_path) values ('r1','ex1',$1, 8.5, $2)`, [ids.s1, ids.s1 + '/r1.jpg']));
+ok(await as(teacher, () => throws(() => q(`insert into results(id, exam_id, student_id, total) values ('rx','ex1',$1, 9)`, [ids.s2]))), 'GV không ghi được điểm cho HS lớp mình không dạy');
+await as(admin, () => q(`insert into results(id, exam_id, student_id, total, image_path) values ('r2','ex1',$1, 6, $2)`, [ids.s2, ids.s2 + '/r2.jpg']));
+await as(teacher, async () => {
+  const st = await q(`select id from students`); ok(st.length === 1 && st[0].id === ids.s1, 'GV bộ môn chỉ thấy học sinh lớp mình dạy');
+  ok((await q(`select id from results`)).every(r => r.id !== 'r2'), 'GV không thấy điểm lớp khác');
+  ok(await throws(() => q(`insert into students(full_name, class_id) values ('Lén Thêm', $1)`, [ids.cl])), 'GV bộ môn không thêm được HS vào lớp (chỉ GVCN)');
+  ok((await q(`update students set full_name = 'Sửa Lén' where id = $1 returning id`, [ids.s2])).length === 0, 'GV không sửa được HS lớp khác');
+});
 await as(teacher, () => q(`insert into storage.objects(bucket_id, name) values ('phieu', $1), ('phieu', $2)`, [ids.s1 + '/r1.jpg', ids.s2 + '/r2.jpg']));
 
 const stu = await mk('hs10012345', 'student', { student: ids.s1 });
@@ -173,7 +182,6 @@ ok(!(await throws(() => reg({ role: 'student', full_name: 'Người Lạ', phone
 ok(await throws(() => reg({ role: 'student', full_name: 'Trùng Tài Khoản', phone: '0912345678', password: 'xxxxxx1', class_name: '10A1', grade: 10 })), 'SĐT đã có tài khoản thì không đăng ký lại');
 
 // liên hệ giáo viên
-await as(admin, () => q(`insert into teacher_classes(teacher_id, class_id, subject, homeroom) values ($1, $2, 'toan', false)`, [teacher, ids.cl]));
 await as(par, async () => {
   const cs = await q(`select * from my_contacts()`);
   ok(cs.some(c => c.teacher_name === 'Trần Thị Lan' && c.homeroom) && cs.some(c => c.teacher_name === 'Cô Hoa' && c.subject === 'Toán'), 'PH xem được GVCN và GV bộ môn của lớp con');
@@ -190,6 +198,16 @@ await as(par, async () => {
   const at = await q(`select student_id, status from attendance`); ok(at.length === 1 && at[0].student_id === ids.s1, 'PH chỉ thấy điểm danh của con');
   ok((await q(`select count(*)::int n from homeroom_tasks`))[0].n === 0, 'PH không thấy công việc chủ nhiệm');
   ok(await throws(() => q(`insert into conduct_events(class_id, student_id, kind, category, points) values ($1,$2,'reward','Tự cộng',100)`, [ids.cl, ids.s1])), 'PH không tự ghi khen thưởng');
+});
+await as(newT, async () => {
+  const nid = (await q(`insert into students(full_name, class_id, cohort_id) values ('Học Sinh Mới', $1, $2) returning id`, [ids.cl, ids.co]))[0].id;
+  ok(!!nid, 'GVCN tự thêm học sinh vào lớp chủ nhiệm');
+  await q(`delete from students where id = $1`, [nid]);
+  ok(await throws(() => q(`insert into students(full_name, class_id) values ('Sang Lớp Khác', $1)`, [ids.cl2])), 'GVCN không thêm được HS vào lớp khác');
+  ok((await q(`select count(*)::int n from students where class_id = $1`, [ids.cl2]))[0].n === 0, 'GVCN không thấy danh sách lớp khác');
+  ok(await throws(() => q(`insert into attendance(class_id, student_id, date, status) values ($1,$2,current_date,'absent')`, [ids.cl2, ids.s2])), 'GVCN không điểm danh được lớp khác');
+  ok(await throws(() => q(`select admin_create_account('hs.lop.khac','MatKhau1','student','',$1)`, [ids.s2])), 'GVCN không tạo được tài khoản cho HS lớp khác');
+  ok((await q(`select count(*)::int n from profiles where role in ('student','parent') and id not in (select user_id from students where user_id is not null union select parent_id from parent_links)`))[0].n === 0, 'GV chỉ thấy tài khoản HS/PH thuộc lớp mình');
 });
 await as(stu2, async () => ok((await q(`select count(*)::int n from conduct_events`))[0].n === 0, 'HS lớp khác không thấy nề nếp của lớp 10A1'));
 await as(newStu, async () => { const c = await q(`select category from conduct_events`); ok(c.length === 1 && c[0].category === 'Phát biểu xây dựng bài', 'HS chỉ thấy nề nếp của mình'); });

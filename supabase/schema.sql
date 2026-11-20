@@ -326,10 +326,11 @@ create or replace function public.admin_create_account(p_username text, p_passwo
 returns uuid language plpgsql security definer set search_path = public as $$
 declare uid uuid; s public.students;
 begin
-  if not public.is_admin() then raise exception 'Chỉ quản trị viên được tạo tài khoản'; end if;
+  if not (public.is_admin() or (p_role in ('student', 'parent') and public.is_staff())) then raise exception 'Chỉ quản trị viên được tạo tài khoản'; end if;
   if p_role in ('student', 'parent') then
     select * into s from public.students where id = p_student;
     if not found then raise exception 'Hãy chọn học sinh'; end if;
+    if not public.homeroom_of(s.class_id) then raise exception 'Chỉ quản trị viên hoặc GV chủ nhiệm lớp này được tạo tài khoản cho học sinh'; end if;
     if p_role = 'student' and s.user_id is not null then raise exception 'Học sinh % đã có tài khoản', s.full_name; end if;
   end if;
   uid := public._create_account(p_username, p_password, p_role,
@@ -697,6 +698,98 @@ create policy phieu_staff on storage.objects for all to authenticated
 create policy phieu_self on storage.objects for select to authenticated
   using (bucket_id = 'phieu' and ((storage.foldername(name))[1] = public.my_student_id()::text
          or (storage.foldername(name))[1] in (select public.my_children()::text)));
+
+-- ---------------------------------------------------------------------
+-- PHÂN QUYỀN THEO LỚP (bảo mật danh sách lớp)
+-- Admin: toàn quyền. Giáo viên: CHỈ thấy học sinh các lớp mình được phân công (dạy hoặc chủ nhiệm).
+-- GV chủ nhiệm: tạo/sửa/xóa danh sách lớp mình, điểm danh, nề nếp, công việc lớp mình.
+-- Không thấy, không sửa được học sinh và phụ huynh của lớp khác.
+-- ---------------------------------------------------------------------
+create or replace function public.teaches_class(p_class uuid) returns boolean
+language sql stable security definer set search_path = public as
+$$ select public.is_admin() or exists (select 1 from public.teacher_classes where teacher_id = auth.uid() and class_id = p_class) $$;
+
+create or replace function public.homeroom_of(p_class uuid) returns boolean
+language sql stable security definer set search_path = public as
+$$ select public.is_admin() or exists (select 1 from public.teacher_classes where teacher_id = auth.uid() and class_id = p_class and homeroom) $$;
+
+create or replace function public.can_see_student(p_student uuid) returns boolean
+language sql stable security definer set search_path = public as
+$$ select public.is_admin() or exists (select 1 from public.students s join public.teacher_classes tc on tc.class_id = s.class_id
+                                       where s.id = p_student and tc.teacher_id = auth.uid()) $$;
+
+-- hồ sơ người dùng mà mình được xem: bản thân, giáo viên/admin (để liên hệ, phân công), HS & PH của lớp mình
+create or replace function public.can_see_profile(p_user uuid) returns boolean
+language sql stable security definer set search_path = public as
+$$ select p_user = auth.uid() or public.is_admin()
+     or (public.is_staff() and (
+          exists (select 1 from public.profiles p where p.id = p_user and p.role in ('admin', 'teacher'))
+          or exists (select 1 from public.students s where s.user_id = p_user and public.can_see_student(s.id))
+          or exists (select 1 from public.parent_links l where l.parent_id = p_user and public.can_see_student(l.student_id)))) $$;
+
+revoke execute on function public.teaches_class(uuid), public.homeroom_of(uuid), public.can_see_student(uuid), public.can_see_profile(uuid) from public, anon;
+grant execute on function public.teaches_class(uuid), public.homeroom_of(uuid), public.can_see_student(uuid), public.can_see_profile(uuid) to authenticated;
+
+drop policy if exists classes_staff on public.classes;
+drop policy if exists classes_staff_upd on public.classes;
+create policy classes_staff on public.classes for insert to authenticated with check (public.is_admin());
+create policy classes_staff_upd on public.classes for update to authenticated using (public.homeroom_of(id)) with check (public.homeroom_of(id));
+
+drop policy if exists profiles_self on public.profiles;
+create policy profiles_self on public.profiles for select to authenticated using (public.can_see_profile(id));
+
+drop policy if exists students_staff on public.students;
+drop policy if exists students_read on public.students;
+drop policy if exists students_write on public.students;
+drop policy if exists students_upd on public.students;
+drop policy if exists students_del on public.students;
+create policy students_read on public.students for select to authenticated using (public.is_admin() or (class_id is not null and public.teaches_class(class_id)));
+create policy students_write on public.students for insert to authenticated with check (public.homeroom_of(class_id));
+create policy students_upd on public.students for update to authenticated using (public.homeroom_of(class_id)) with check (public.homeroom_of(class_id));
+create policy students_del on public.students for delete to authenticated using (public.homeroom_of(class_id));
+
+drop policy if exists parent_links_staff on public.parent_links;
+create policy parent_links_staff on public.parent_links for select to authenticated using (public.can_see_student(student_id));
+drop policy if exists parent_links_admin on public.parent_links;
+create policy parent_links_admin on public.parent_links for all to authenticated using (public.is_admin()) with check (public.is_admin());
+
+drop policy if exists teacher_classes_self on public.teacher_classes;
+create policy teacher_classes_self on public.teacher_classes for select to authenticated
+  using (teacher_id = auth.uid() or public.is_admin() or (public.is_staff() and public.teaches_class(class_id)));
+
+drop policy if exists results_staff on public.results;
+create policy results_staff on public.results for all to authenticated
+  using (public.is_admin() or graded_by = auth.uid() or (student_id is not null and public.can_see_student(student_id)))
+  with check (public.is_admin() or (public.is_staff() and (student_id is null or public.can_see_student(student_id))));
+
+drop policy if exists assignments_staff on public.assignments;
+create policy assignments_staff on public.assignments for all to authenticated
+  using (public.is_admin() or teacher_id = auth.uid() or (public.is_staff() and public.teaches_class(class_id)))
+  with check (public.is_admin() or (teacher_id = auth.uid() and public.teaches_class(class_id)));
+
+drop policy if exists submissions_staff on public.submissions;
+create policy submissions_staff on public.submissions for all to authenticated
+  using (public.can_see_student(student_id)) with check (public.can_see_student(student_id));
+
+drop policy if exists attendance_staff on public.attendance;
+create policy attendance_staff on public.attendance for all to authenticated using (public.homeroom_of(class_id)) with check (public.homeroom_of(class_id));
+drop policy if exists conduct_staff on public.conduct_events;
+create policy conduct_staff on public.conduct_events for all to authenticated using (public.homeroom_of(class_id)) with check (public.homeroom_of(class_id));
+drop policy if exists hrtasks_staff on public.homeroom_tasks;
+create policy hrtasks_staff on public.homeroom_tasks for all to authenticated using (public.homeroom_of(class_id)) with check (public.homeroom_of(class_id));
+
+-- Đặt lại mật khẩu: admin cho mọi tài khoản; giáo viên chỉ cho HS & PH của lớp mình
+create or replace function public.reset_password(p_user uuid, p_password text) returns boolean
+language plpgsql security definer set search_path = public, auth, extensions as $$
+declare r text;
+begin
+  select role into r from public.profiles where id = p_user;
+  if r is null then raise exception 'Không tìm thấy tài khoản'; end if;
+  if not (public.is_admin() or (public.is_staff() and r in ('student', 'parent') and public.can_see_profile(p_user))) then raise exception 'Không có quyền'; end if;
+  if length(coalesce(p_password, '')) < 6 then raise exception 'Mật khẩu tối thiểu 6 ký tự'; end if;
+  update auth.users set encrypted_password = crypt(p_password, gen_salt('bf')), updated_at = now() where id = p_user;
+  return true;
+end $$;
 
 -- ---------------------------------------------------------------------
 -- BƯỚC CUỐI: tạo tài khoản admin đầu tiên. Bỏ dấu -- ở dòng dưới, đổi tên đăng nhập & mật khẩu rồi chạy:

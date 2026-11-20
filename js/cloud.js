@@ -44,6 +44,7 @@
   function loginOverlay() {
     const el = document.createElement('div'); el.id = 'authOverlay';
     const y = new Date().getFullYear();
+    const SY = new Date().getMonth() >= 7 ? y : y - 1;   // năm bắt đầu năm học hiện tại
     el.innerHTML = `<div class="auth-box">
       <div class="auth-brand"><img src="assets/logo-256.png" alt="${esc(CFG.BRAND || '')}"><b>${esc(CFG.BRAND || 'Tiến Thịnh EDU')}</b><span>${esc(CFG.SCHOOL_NAME || '')}</span></div>
       <div class="seg auth-tabs"><button class="active" data-t="login" type="button">Đăng nhập</button><button data-t="reg" type="button">Đăng ký</button></div>
@@ -67,7 +68,7 @@
             <label><span data-lbl>Lớp</span><input name="class_name" maxlength="20" placeholder="10A1"></label>
             <label>Khối<select name="grade"><option>10</option><option>11</option><option>12</option></select></label>
           </div>
-          <label>Khóa<input name="cohort" maxlength="20" placeholder="VD: ${y}-${y + 3}"></label>
+          <label>Khóa<select name="cohort">${[0, 1, 2, -1].map(k => { const s = SY - k; return `<option value="${s}-${s + 3}" ${k === 0 ? 'selected' : ''}>${s}-${s + 3}${k >= 0 ? ` (đang học lớp ${10 + k})` : ' (khóa sau)'}</option>`; }).join('')}</select><small class="muted">Tự chọn theo khối, có thể đổi.</small></label>
         </div>
         <label>Mật khẩu mong muốn (tối thiểu 6 ký tự)<input name="password" type="password" minlength="6" maxlength="72" required autocomplete="new-password"></label>
         <label>Nhập lại mật khẩu<input name="password2" type="password" minlength="6" required autocomplete="new-password"></label>
@@ -104,13 +105,16 @@
       }
       msg(esc(error.message));
     };
+    { const f = $('#fReg'); const syncCo = () => { const g = +f.grade.value; f.cohort.value = `${SY - (g - 10)}-${SY - (g - 10) + 3}`; };
+      f.grade.onchange = syncCo;
+      f.class_name.oninput = () => { const m = /^s*(1[012])/.exec(f.class_name.value); if (m && f.grade.value !== m[1]) { f.grade.value = m[1]; syncCo(); } }; }
     $('#fReg').onsubmit = async (e) => {
       e.preventDefault(); const f = e.target;
       if (f.password.value !== f.password2.value) return msg('Hai mật khẩu không khớp.');
       const p = { role, full_name: f.full_name.value.trim(), phone: normLogin(f.phone.value), password: f.password.value };
       if (role === 'teacher') Object.assign(p, { subject: f.subject.value, homeroom: f.homeroom.value.trim() });
       if (role === 'parent') p.child_name = f.child_name.value.trim();
-      if (role !== 'teacher') Object.assign(p, { class_name: f.class_name.value.trim(), grade: f.grade.value, cohort: f.cohort.value.trim() });
+      if (role !== 'teacher') Object.assign(p, { class_name: f.class_name.value.trim(), grade: f.grade.value, cohort: f.cohort.value });
       msg('Đang gửi…');
       const { error } = await sb.rpc('submit_registration', { p });
       if (error) return msg(esc(error.message));
@@ -396,6 +400,49 @@
       toast(error ? 'Lỗi: ' + error.message : 'Đã đổi mật khẩu.');
     };
   }
+  // nhập danh sách học sinh: dán văn bản hoặc chọn tệp; tự nhận cột, xem trước rồi mới lưu
+  function importRoster(c, done) {
+    const RI = G.RosterImport; let parsed = { out: [], skipped: [] };
+    const d = document.createElement('dialog'); d.className = 'cl-dialog ri-dialog';
+    d.innerHTML = `<h3>Nhập học sinh vào lớp ${esc(c.name)}</h3>
+      <p class="muted small">Chọn tệp <b>Excel (.xlsx), Word (.docx), CSV/TXT</b> hoặc dán danh sách vào ô dưới. Cột thừa (STT, giới tính, dân tộc, địa chỉ, SĐT…) tự bỏ qua — chỉ lưu <b>họ tên, SBD, ngày sinh</b>. Có hay không có dòng tiêu đề đều được.</p>
+      <div class="row-actions"><label class="btn sm">📂 Chọn tệp<input type="file" id="riFile" accept=".xlsx,.xlsm,.docx,.csv,.txt,.xls,.doc" hidden></label><span class="muted small" id="riFileName"></span></div>
+      <textarea id="riText" rows="7" style="width:100%;margin-top:6px" placeholder="VD:&#10;STT  Họ và tên        Ngày sinh   Giới tính&#10;1    NGUYỄN VĂN AN     05/02/2011  Nam&#10;2    Trần Thị Bình     21/04/2011  Nữ"></textarea>
+      <div id="riPrev" class="ri-prev"></div>
+      <div class="modal-actions"><button class="btn" id="riCancel">Hủy</button><button class="btn primary" id="riOk" disabled>Lưu</button></div>`;
+    document.body.appendChild(d); d.showModal();
+    const close = () => { d.close(); d.remove(); };
+    const show = () => {
+      const p = parsed; const dupDb = (o) => o.sbd ? S.students.find(s => s.sbd === o.sbd) : S.students.find(s => s.class_id === c.id && s.full_name.toLowerCase() === o.full_name.toLowerCase() && (!o.dob || !s.dob || s.dob === o.dob));
+      p.out.forEach(o => { o.ex = dupDb(o) || null; });
+      const nNew = p.out.filter(o => !o.ex).length, nUpd = p.out.length - nNew;
+      $('#riPrev', d).innerHTML = !p.out.length ? (p.skipped.length ? '<p class="warn small">Không đọc được học sinh nào. Kiểm tra lại danh sách.</p>' : '')
+        : `<p class="small"><b>Đọc được ${p.out.length} học sinh</b>${p.sheet ? ` (trang tính “${esc(p.sheet)}”)` : ''}: ${nNew} mới${nUpd ? `, ${nUpd} đã có (sẽ cập nhật)` : ''}${p.skipped.length ? `, bỏ qua ${p.skipped.length} dòng không phải học sinh` : ''}.</p>
+          <div class="table-wrap" style="max-height:260px"><table class="gr-table"><thead><tr><th>#</th><th>Họ và tên</th><th>SBD</th><th>Ngày sinh</th><th></th></tr></thead><tbody>
+          ${p.out.map((o, i) => `<tr><td>${i + 1}</td><td>${esc(o.full_name)}</td><td>${esc(o.sbd || '')}</td><td>${o.dob ? o.dob.split('-').reverse().join('/') : ''}</td><td class="small">${o.ex ? '<span class="tag">đã có</span> ' : ''}${o.warn.map(w => `<span class="warn">${esc(w)}</span>`).join(' ')}</td></tr>`).join('')}</tbody></table></div>
+          ${p.skipped.length ? `<details class="small"><summary>Dòng bị bỏ qua (${p.skipped.length})</summary>${p.skipped.slice(0, 30).map(s => `<div class="muted">Dòng ${s.line}: ${esc(s.text)}</div>`).join('')}</details>` : ''}`;
+      $('#riOk', d).disabled = !p.out.length; $('#riOk', d).textContent = p.out.length ? `Lưu ${p.out.length} học sinh` : 'Lưu';
+    };
+    let tm; $('#riText', d).oninput = () => { clearTimeout(tm); tm = setTimeout(() => { parsed = RI.parse($('#riText', d).value); $('#riFileName', d).textContent = ''; show(); }, 250); };
+    $('#riFile', d).onchange = async (e) => {
+      const file = e.target.files[0]; if (!file) return; $('#riFileName', d).textContent = 'Đang đọc ' + file.name + '…';
+      try { parsed = await RI.readFile(file); $('#riFileName', d).textContent = file.name; show(); }
+      catch (err) { $('#riFileName', d).textContent = ''; $('#riPrev', d).innerHTML = `<p class="warn small">${esc(err.message)}</p>`; }
+      e.target.value = '';
+    };
+    $('#riCancel', d).onclick = (e) => { e.preventDefault(); close(); };
+    d.addEventListener('cancel', () => setTimeout(() => d.remove(), 0));
+    $('#riOk', d).onclick = async (e) => {
+      e.preventDefault(); const b = e.target; b.disabled = true;
+      try {
+        const recs = parsed.out.map(o => Object.assign(o.ex ? { id: o.ex.id } : {}, { full_name: o.full_name, sbd: o.sbd || (o.ex ? o.ex.sbd : null), class_id: c.id, cohort_id: c.cohort_id || (o.ex ? o.ex.cohort_id : null), dob: o.dob || (o.ex ? o.ex.dob : null) }));
+        const withId = recs.filter(r => r.id), noId = recs.filter(r => !r.id);
+        if (withId.length) await push(sb.from('students').upsert(withId), 'học sinh');
+        if (noId.length) await push(sb.from('students').insert(noId), 'học sinh');
+        S.students = await fetchAll('students'); toast(`Đã lưu ${recs.length} học sinh vào lớp ${c.name}.`, 4000); close(); done();
+      } catch (err) { b.disabled = false; toast('Lỗi: ' + (err.message || err), 6000); }
+    };
+  }
   // hộp thoại đơn giản
   function dialog(inner, okText = 'OK') {
     const d = document.createElement('dialog'); d.className = 'cl-dialog';
@@ -446,8 +493,13 @@
 
   function renderClasses(root) {
     const admin = S.profile.role === 'admin';
-    if (!cst.classId && S.classes[0]) cst.classId = S.classes[0].id;
-    const cls = S.classes.slice().sort((a, b) => (b.school_year || '').localeCompare(a.school_year || '') || a.name.localeCompare(b.name, 'vi'));
+    // giáo viên chỉ thấy lớp mình được phân công (dạy hoặc chủ nhiệm) – bảo mật theo lớp
+    const myTc = (S.teacherClasses || []).filter(t => t.teacher_id === S.profile.id);
+    const visible = admin ? S.classes : S.classes.filter(c => myTc.some(t => t.class_id === c.id));
+    const isHr = (cid) => admin || myTc.some(t => t.class_id === cid && t.homeroom);
+    if (!visible.some(c => c.id === cst.classId)) cst.classId = (visible.find(c => isHr(c.id)) || visible[0] || {}).id || null;
+    const canEdit = !!cst.classId && isHr(cst.classId);
+    const cls = visible.slice().sort((a, b) => (b.school_year || '').localeCompare(a.school_year || '') || a.name.localeCompare(b.name, 'vi'));
     const studs = S.students.filter(s => s.class_id === cst.classId).sort((a, b) => lastName(a.full_name).localeCompare(lastName(b.full_name), 'vi'));
     root.innerHTML = `
       <div class="cl-grid">
@@ -457,22 +509,21 @@
           ${admin ? `<button class="btn sm" id="addCohort">＋ Thêm khóa</button>` : ''}
           <p class="muted small">Sau ngày kết thúc khóa, tài khoản học sinh và phụ huynh của khóa đó tự xóa (2 giờ sáng mỗi ngày).${admin ? ' <button class="btn sm danger" id="purgeNow">Xóa ngay tài khoản hết khóa</button>' : ''}</p>
           <h2>Lớp</h2>
-          <div class="cl-classes">${cls.map(c => `<button class="cl-class ${c.id === cst.classId ? 'active' : ''}" data-cls="${c.id}"><b>${esc(c.name)}</b><small>Khối ${c.grade} · ${esc(c.school_year)} · ${S.students.filter(s => s.class_id === c.id).length} HS</small></button>`).join('') || '<p class="muted">Chưa có lớp.</p>'}</div>
-          <button class="btn sm" id="addClass">＋ Thêm lớp</button>
+          <div class="cl-classes">${cls.map(c => `<button class="cl-class ${c.id === cst.classId ? 'active' : ''}" data-cls="${c.id}"><b>${esc(c.name)}</b><small>Khối ${c.grade} · ${esc(c.school_year)} · ${S.students.filter(s => s.class_id === c.id).length} HS</small></button>`).join('') || (admin ? '<p class="muted">Chưa có lớp.</p>' : '<p class="muted">Bạn chưa được phân công lớp nào. Quản trị viên phân công ở mục <b>Phân công giảng dạy</b>.</p>')}</div>
+          ${admin ? '<button class="btn sm" id="addClass">＋ Thêm lớp</button>' : ''}
           ${admin ? renderStaffBlock() : ''}
         </div>
         <div>
           ${cst.classId ? `<h2>Học sinh lớp ${esc((classOf(cst.classId) || {}).name || '')}</h2>
           <div class="row-actions" style="margin-bottom:6px">
-            <button class="btn sm primary" id="importStud">＋ Nhập danh sách</button>
-            ${admin ? `<button class="btn sm" id="mkAccounts">👤 Tạo tài khoản HS & PH còn thiếu</button>` : '<span class="muted small">Tài khoản học sinh/phụ huynh do quản trị viên tạo.</span>'}
+            ${canEdit ? `<button class="btn sm primary" id="importStud">＋ Nhập danh sách</button><button class="btn sm" id="mkAccounts">👤 Tạo tài khoản HS & PH còn thiếu</button>` : '<span class="muted small">Chỉ xem – danh sách lớp do giáo viên chủ nhiệm quản lý.</span>'}
           </div>
           <div class="table-wrap"><table class="gr-table"><thead><tr><th>Họ tên</th><th>SBD</th><th>Tài khoản HS</th><th>Phụ huynh</th><th></th></tr></thead><tbody>
           ${studs.map(s => { const a = s.user_id ? profileOf(s.user_id) : null; const ps = parentsOf(s.id);
             return `<tr><td>${esc(s.full_name)}</td><td>${esc(s.sbd || '')}</td>
-            <td>${a ? `${esc(a.username)} <button class="btn sm" data-reset="${a.id}" title="Đặt lại mật khẩu">🔒</button>${admin ? `<button class="btn sm danger" data-delacc="${a.id}" title="Xóa tài khoản">✕</button>` : ''}` : `<span class="muted">chưa có</span>${admin ? ` <button class="btn sm" data-mk1="${s.id}">Tạo</button>` : ''}`}</td>
+            <td>${a ? `${esc(a.username)} <button class="btn sm" data-reset="${a.id}" title="Đặt lại mật khẩu">🔒</button>${admin ? `<button class="btn sm danger" data-delacc="${a.id}" title="Xóa tài khoản">✕</button>` : ''}` : `<span class="muted">chưa có</span>${canEdit ? ` <button class="btn sm" data-mk1="${s.id}">Tạo</button>` : ''}`}</td>
             <td>${ps.map(p => `${esc(p.username)} <button class="btn sm" data-reset="${p.id}" title="Đặt lại mật khẩu">🔒</button>`).join('<br>')}${admin ? ` <button class="btn sm" data-linkpar="${s.id}" title="Thêm phụ huynh cho học sinh này">＋PH</button>` : ''}</td>
-            <td><button class="btn sm" data-edst="${s.id}">Sửa</button> <button class="btn sm danger" data-rmst="${s.id}">✕</button></td></tr>`; }).join('') || '<tr><td colspan="5" class="muted">Lớp chưa có học sinh.</td></tr>'}
+            <td>${canEdit ? `<button class="btn sm" data-edst="${s.id}">Sửa</button> <button class="btn sm danger" data-rmst="${s.id}">✕</button>` : ''}</td></tr>`; }).join('') || '<tr><td colspan="5" class="muted">Lớp chưa có học sinh.</td></tr>'}
           </tbody></table></div>` : '<p class="muted">Hãy tạo lớp trước.</p>'}
         </div>
       </div>`;
@@ -494,7 +545,7 @@
       if (!confirm('Xóa ngay tài khoản học sinh & phụ huynh của các khóa đã kết thúc?')) return;
       const { data, error } = await sb.rpc('admin_purge_now'); toast(error ? error.message : `Đã xóa ${data} tài khoản.`); await reloadPeople(); R();
     };
-    $('#addClass', root).onclick = () => {
+    if ($('#addClass', root)) $('#addClass', root).onclick = () => {
       const y = new Date().getMonth() >= 7 ? new Date().getFullYear() : new Date().getFullYear() - 1;
       dialog(`<h3>Thêm lớp</h3><label>Tên lớp<input name="n" required placeholder="10A1"></label><label>Khối<select name="g"><option>10</option><option>11</option><option>12</option></select></label>
         <label>Khóa<select name="co"><option value="">—</option>${S.cohorts.map(c => `<option value="${c.id}">${esc(c.name)}</option>`).join('')}</select></label><label>Năm học<input name="y" value="${y}-${y + 1}"></label>`, 'Thêm').onok = async (f) => {
@@ -517,23 +568,7 @@
       await reloadPeople(); toast('Đã xóa tài khoản.'); R();
     });
     if (!cst.classId) return;
-    $('#importStud', root).onclick = () => {
-      dialog(`<h3>Nhập học sinh vào lớp ${esc(classOf(cst.classId).name)}</h3><p class="muted small">Dán từ Excel, mỗi dòng: <b>Họ và tên · SBD · Ngày sinh (dd/mm/yyyy, không bắt buộc)</b>. Học sinh trùng SBD sẽ được cập nhật.</p><textarea name="t" rows="10" style="width:100%"></textarea>`, 'Nhập').onok = async (f) => {
-        const c = classOf(cst.classId); const rows = f.t.value.split(/\r?\n/).map(l => l.split(/\t|;/).map(x => x.trim())).filter(r => r[0] && !/họ.*tên/i.test(r[0]));
-        const recs = []; const errs = [];
-        rows.forEach((r, i) => {
-          const [name, sbd, dob] = r; if (sbd && !/^\d{1,8}$/.test(sbd)) { errs.push(`Dòng ${i + 1}: SBD "${sbd}" không hợp lệ`); return; }
-          const m = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(dob || '');
-          const ex = sbd ? S.students.find(s => s.sbd === sbd) : null;
-          recs.push(Object.assign(ex ? { id: ex.id } : {}, { full_name: name, sbd: sbd || null, class_id: c.id, cohort_id: c.cohort_id, dob: m ? `${m[3]}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}` : null }));
-        });
-        if (errs.length) return toast(errs.join('; '), 7000);
-        const withId = recs.filter(r => r.id), noId = recs.filter(r => !r.id);
-        if (withId.length) await push(sb.from('students').upsert(withId), 'học sinh');
-        if (noId.length) await push(sb.from('students').insert(noId), 'học sinh');
-        S.students = await fetchAll('students'); toast(`Đã nhập ${recs.length} học sinh.`); R();
-      };
-    };
+    if ($('#importStud', root)) $('#importStud', root).onclick = () => importRoster(classOf(cst.classId), R);
     if ($('#mkAccounts', root)) $('#mkAccounts', root).onclick = async () => {
       const need = studs.filter(s => !s.user_id || !parentsOf(s.id).length);
       if (!need.length) return toast('Mọi học sinh trong lớp đã có tài khoản HS và PH.');
@@ -679,7 +714,8 @@
             ${opts.length && opts[0].sc >= 10 ? '' : '<p class="warn small">Chưa thấy học sinh trùng tên. Hãy nhập học sinh vào lớp (tab Lớp & học sinh) hoặc duyệt tài khoản của con trước.</p>'}`;
         } else {
           ctl = `<label>Môn dạy<input data-k="subjects" value="${esc(r.subject || '')}"></label>
-            <label>Lớp chủ nhiệm<select data-k="class"><option value="">— không chủ nhiệm —</option>${classOpts(homeCls)}</select></label>`;
+            <label>Lớp chủ nhiệm<select data-k="class"><option value="">— không chủ nhiệm —</option>${classOpts(homeCls)}</select></label>
+            ${!homeCls && r.homeroom ? `<p class="warn small">Chưa có lớp ${esc(r.homeroom)} trong hệ thống.</p><button class="btn sm" data-mkcls="${r.id}">＋ Tạo lớp ${esc(r.homeroom)} rồi chọn làm lớp chủ nhiệm</button>` : ""}`;
         }
         return `<div class="card ap-card ${r.status}" data-id="${r.id}">
           <div class="card-head"><span class="tag ap-role-${r.role}">${ROLE_TAG[r.role]}</span><b>${esc(r.full_name)}</b><span class="tag">☎ ${esc(r.phone)}</span>
@@ -700,6 +736,8 @@
       if (r.role === 'parent') { args.p_student = val(r.id, 'student') || null; if (!args.p_student) return toast('Hãy chọn học sinh là con.', 4000); }
       if (r.role === 'teacher') { args.p_class = val(r.id, 'class') || null; args.p_subjects = val(r.id, 'subjects').split(/[,;]/).map(s => s.trim()).filter(Boolean); }
       b.disabled = true;
+      // GV đăng ký chủ nhiệm một lớp chưa có trong hệ thống → tự tạo lớp đó rồi giao chủ nhiệm
+      if (r.role === 'teacher' && !args.p_class && r.homeroom && !classMatch(r.homeroom)) { const d = await makeClassFor(r); if (d) args.p_class = d.id; }
       const { error } = await sb.rpc('admin_approve_registration', args);
       if (error) { b.disabled = false; return toast('Không duyệt được: ' + error.message, 6000); }
       toast(`Đã duyệt ${ROLE_TAG[r.role].toLowerCase()} ${r.full_name}. Đăng nhập bằng SĐT ${r.phone}.`, 5000);
@@ -719,12 +757,23 @@
     });
     $$('[data-mkcls]', root).forEach(b => b.onclick = async () => {
       const r = S.registrations.find(x => x.id === b.dataset.mkcls);
-      let co = S.cohorts.find(c => c.name === r.cohort);
-      if (!co && r.cohort && /^\d{4}-\d{4}$/.test(r.cohort)) co = await push(sb.from('cohorts').insert({ name: r.cohort, end_date: r.cohort.slice(5) + '-06-30' }).select().single(), 'khóa').then(d => (S.cohorts.push(d), d)).catch(() => null);
-      const y = new Date().getMonth() >= 7 ? new Date().getFullYear() : new Date().getFullYear() - 1;
-      const d = await push(sb.from('classes').insert({ name: r.class_name, grade: r.grade || 10, cohort_id: co ? co.id : null, school_year: `${y}-${y + 1}` }).select().single(), 'lớp').catch(() => null);
-      if (d) { S.classes.push(d); toast(`Đã tạo lớp ${d.name}.`); R(); }
+      if (await makeClassFor(r)) R();
     });
+  }
+  // tạo lớp (và khóa nếu cần) theo thông tin trên đơn đăng ký
+  async function makeClassFor(r) {
+    {
+      const cname = String((r.role === 'teacher' ? r.homeroom : r.class_name) || '').trim().toUpperCase();
+      const grade = +r.grade || +(cname.match(/^(1[012])/) || [])[1] || 10;
+      const y = new Date().getMonth() >= 7 ? new Date().getFullYear() : new Date().getFullYear() - 1;
+      const s0 = y - (grade - 10);
+      let co = S.cohorts.find(c => c.name === r.cohort) || S.cohorts.find(c => c.name === `${s0}-${s0 + 3}`);
+      const coName = r.cohort && /^\d{4}-\d{4}$/.test(r.cohort) ? r.cohort : `${s0}-${s0 + 3}`;
+      if (!co) co = await push(sb.from('cohorts').insert({ name: coName, end_date: coName.slice(5) + '-06-30' }).select().single(), 'khóa').then(d => (S.cohorts.push(d), d)).catch(() => null);
+      const d = await push(sb.from('classes').insert({ name: cname, grade, cohort_id: co ? co.id : null, school_year: `${y}-${y + 1}` }).select().single(), 'lớp').catch(() => null);
+      if (d) { S.classes.push(d); toast(`Đã tạo lớp ${d.name}.`); }
+      return d;
+    }
   }
 
   // ======================= BÀI TẬP VỀ NHÀ =======================
