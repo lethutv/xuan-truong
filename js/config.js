@@ -6,5 +6,6 @@ window.APP_CONFIG = {
   SUPABASE_URL: '',
   SUPABASE_ANON_KEY: '',
   LOGIN_DOMAIN: 'taikhoan.detoan.app',   // tên miền giả cho email nội bộ (tên đăng nhập + @ + tên miền)
-  SCHOOL_NAME: 'Trường THPT'
+  SCHOOL_NAME: 'Trường THPT Tiến Thịnh',
+  BRAND: 'Tiến Thịnh EDU'
 };

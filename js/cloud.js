@@ -45,7 +45,7 @@
     const el = document.createElement('div'); el.id = 'authOverlay';
     const y = new Date().getFullYear();
     el.innerHTML = `<div class="auth-box">
-      <div class="auth-brand">∑ <b>Tạo đề Toán</b><span>${esc(CFG.SCHOOL_NAME || '')}</span></div>
+      <div class="auth-brand"><img src="assets/logo-256.png" alt="${esc(CFG.BRAND || '')}"><b>${esc(CFG.BRAND || 'Tiến Thịnh EDU')}</b><span>${esc(CFG.SCHOOL_NAME || '')}</span></div>
       <div class="seg auth-tabs"><button class="active" data-t="login" type="button">Đăng nhập</button><button data-t="reg" type="button">Đăng ký</button></div>
       <form id="fLogin" class="auth-form">
         <label>Số điện thoại hoặc tên đăng nhập<input name="u" autocomplete="username" autocapitalize="none" required></label>
@@ -333,7 +333,7 @@
     // thanh trên
     const top = $('.topbar');
     top.innerHTML = `<button class="nav-toggle" id="navToggle" aria-label="Menu">☰</button>
-      <div class="brand">∑ <b>${esc(CFG.SCHOOL_NAME || 'Trường THPT')}</b></div>
+      <div class="brand"><img src="assets/logo-96.png" class="brand-logo" alt=""><span class="brand-txt"><b>${esc(CFG.BRAND || 'Tiến Thịnh EDU')}</b><small>${esc(CFG.SCHOOL_NAME || '')}</small></span></div>
       <span class="spacer"></span>
       ${role !== 'parent' && subs.length > 1 ? `<label class="subj-pick">Môn <select id="subjSel">${subs.map(c => `<option value="${c}" ${c === G.CLOUD.subject ? 'selected' : ''}>${esc(subjectName(c))}</option>`).join('')}</select></label>` : (role !== 'parent' ? `<span class="subj-one">Môn: <b>${esc(G.CLOUD.subjectName)}</b></span>` : '')}
       <div class="user-menu"><button class="user-btn" id="userBtn"><span class="avatar">${esc((S.profile.full_name || S.profile.username).trim().split(/\s+/).pop().slice(0, 1).toUpperCase())}</span><span class="user-txt"><b>${esc(S.profile.full_name || S.profile.username)}</b><small>${ROLE_NAME[role]}${isHomeroom() ? ' · GVCN' : ''}</small></span> ▾</button>
@@ -371,7 +371,7 @@
     G.CLOUD.current = v;
     $$('.nav-item').forEach(x => x.classList.toggle('active', x.dataset.v === v));
     $$('.view').forEach(x => x.classList.toggle('active', x.id === 'view-' + v));
-    document.title = (VIEW_TITLE[v] || 'Tạo đề') + ' – ' + (CFG.SCHOOL_NAME || 'Trường THPT');
+    document.title = (VIEW_TITLE[v] || 'Tạo đề') + ' – ' + (CFG.BRAND || 'Tiến Thịnh EDU');
     window.scrollTo(0, 0);
     if (v === 'create') G.__app.refresh();
     if (v === 'bank') G.__app.renderBank();
