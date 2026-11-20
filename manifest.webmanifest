@@ -1,0 +1,12 @@
+{
+  "name": "Tiến Thịnh EDU – Trường THPT Tiến Thịnh",
+  "short_name": "Tiến Thịnh EDU",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#13294b",
+  "icons": [
+    { "src": "assets/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "assets/icon-512.png", "sizes": "512x512", "type": "image/png" }
+  ]
+}
