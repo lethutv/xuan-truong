@@ -1,0 +1,34 @@
+<!doctype html><meta charset="utf-8"><title>OMR test</title>
+<body style="font:13px sans-serif"><pre id="out"></pre><div id="imgs"></div>
+<script src="../../js/omr-layout.js"></script>
+<script>
+// omr.js dùng đường dẫn vendor/ tương đối với trang chính; ở đây chỉ thử ảnh
+</script>
+<script src="../../js/omr.js"></script>
+<script>
+async function run() {
+  const spec = await fetch('test-spec.json').then(r => r.json());
+  const out = document.getElementById('out'); const res = {};
+  for (const name of ['test0-flat.jpg', 'test1-photo.jpg', 'test2-rot180.jpg', 'test3-small.jpg']) {
+    const blob = await fetch(name + '?' + Date.now()).then(r => r.blob());
+    const file = new File([blob], name, { type: 'image/jpeg' });
+    const t0 = performance.now();
+    const [{ canvas }] = await OMR.filesToCanvases([file]);
+    const r = await OMR.processCanvas(canvas);
+    const ms = Math.round(performance.now() - t0);
+    if (!r.ok) { res[name] = { error: r.error, ms }; continue; }
+    const d = OMR.decode(r.fill);
+    const errs = [];
+    if (d.sbd !== spec.sbd) errs.push('sbd ' + d.sbd);
+    if (d.made !== spec.made) errs.push('made ' + d.made);
+    spec.p1.forEach((o, q) => { if (d.p1[q].length !== 1 || d.p1[q][0] !== o) errs.push('p1.' + (q + 1) + ':' + d.p1[q]); });
+    for (let q = 12; q < 40; q++) if (d.p1[q].length) errs.push('p1 extra ' + (q + 1));
+    spec.p2.forEach((st, q) => st.forEach((v, s) => { if (d.p2[q][s] !== v) errs.push(`p2.${q + 1}${'abcd'[s]}:${d.p2[q][s]}`); }));
+    spec.p3.forEach((a, q) => { if (d.p3[q] !== a) errs.push(`p3.${q + 1}:${d.p3[q]}`); });
+    res[name] = { ms, thr: r.threshold.toFixed(2), marker: r.markerScore, errs };
+    const c = r.rect.canvas; c.style.width = '300px'; c.title = name; document.getElementById('imgs').appendChild(c);
+  }
+  out.textContent = JSON.stringify(res, null, 1); window.__res = res;
+}
+run().catch(e => { document.getElementById('out').textContent = 'ERR ' + e.stack; window.__res = { err: e.message }; });
+</script>
